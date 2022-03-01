@@ -5,9 +5,9 @@ from pycompss.api.api import compss_barrier, compss_wait_on
 from pycompss.api.constraint import constraint
 from socket import timeout
 from utils import pixel2GPS
-import deduplicator as dd
+#import deduplicator as dd
 import paho.mqtt.client as mqtt
-import track
+from lib import track
 import socket
 import os
 
@@ -83,6 +83,8 @@ def receive_boxes(socket_ip, dummy):
             traceback.print_exc()
 
     serverSocket.close()
+    # box_coords: 4 esquinas coordenadas
+    # boxes: track.obj_m -> modules.cpp de tracker_CLASS/bsc 
     return cam_id, timestamp, boxes, dummy, box_coords, init_point, frame_number
 
 
@@ -146,21 +148,21 @@ def persist_info(trackers, count, kb, with_pollution):
     snapshot = EventsSnapshot(snapshot_alias, print_federated_events=True, trigger_modena_tp=False)
     snapshot.make_persistent()
     snapshot.add_events_from_trackers(trackers, kb)  # create events inside dataclay
-    if with_pollution:
-        if not os.path.exists(pollution_file_name):
-            with open(pollution_file_name, "w") as f:
-                f.write("VehID, LinkID, Time, Vehicle_type, Av_link_speed\n")
-        for index, ev in enumerate(trackers[1]):
-            if classes[ev[2]] in ["car", "bus"]:
-                obj_type = (classes[ev[2]]).title()
-            elif classes[ev[2]] in ["class20", "class30", "class31"]:
-                obj_type = "car"
-            elif classes[ev[2]] == "truck":
-                obj_type = "HDV"
-            else:
-                continue
-            with open(pollution_file_name, "a") as f:
-                f.write(f"{ev[0]}_{ev[1]}, {ev[0]}, {trackers[0]}, {obj_type}, {ev[3]}\n")  # TODO: average link speed
+    # if with_pollution:
+    #     if not os.path.exists(pollution_file_name):
+    #         with open(pollution_file_name, "w") as f:
+    #             f.write("VehID, LinkID, Time, Vehicle_type, Av_link_speed\n")
+    #     for index, ev in enumerate(trackers[1]):
+    #         if classes[ev[2]] in ["car", "bus"]:
+    #             obj_type = (classes[ev[2]]).title()
+    #         elif classes[ev[2]] in ["class20", "class30", "class31"]:
+    #             obj_type = "car"
+    #         elif classes[ev[2]] == "truck":
+    #             obj_type = "HDV"
+    #         else:
+    #             continue
+    #         with open(pollution_file_name, "a") as f:
+    #             f.write(f"{ev[0]}_{ev[1]}, {ev[0]}, {trackers[0]}, {obj_type}, {ev[3]}\n")  # TODO: average link speed
     return snapshot
 
 
@@ -220,12 +222,12 @@ def boxes_and_track(socket_ip, trackers_list, tracker_indexes, cur_index):
     return execute_tracking(list_boxes, trackers_list, tracker_indexes, cur_index)
 
 
-def execute_trackers(socket_ips, kb, with_pollution):
+def execute_trackers(socket_ips, with_pollution):
     import uuid
     import time
     import sys
     import os
-    from dataclay.api import register_dataclay, get_external_backend_id_by_name
+    #from dataclay.api import register_dataclay, get_external_backend_id_by_name
 
     trackers_list = [[]] * len(socket_ips)
     cur_index = [0] * len(socket_ips)
@@ -237,9 +239,9 @@ def execute_trackers(socket_ips, kb, with_pollution):
     box_coords = [0] * len(socket_ips)
     frames = [0] * len(socket_ips)
 
-    federation_ip, federation_port = "192.168.7.32", 11034  # TODO: change port accordingly
-    dataclay_to_federate = register_dataclay(federation_ip, federation_port)
-    external_backend_id = get_external_backend_id_by_name("DS1", dataclay_to_federate)
+    #federation_ip, federation_port = "192.168.7.32", 11034  # TODO: change port accordingly
+    #dataclay_to_federate = register_dataclay(federation_ip, federation_port)
+    #external_backend_id = get_external_backend_id_by_name("DS1", dataclay_to_federate)
 
     i = 0
     reception_dummies = [0] * len(socket_ips)
@@ -254,29 +256,29 @@ def execute_trackers(socket_ips, kb, with_pollution):
                                                                                                     cur_index[index],
                                                                                                     init_point)
 
-        deduplicated_trackers, foo_dedu = deduplicate(info_for_deduplicator, cam_ids, foo_dedu, frames)  # or frames appended inside info_for_dedu in tracking
-
+        #deduplicated_trackers, foo_dedu = deduplicate(info_for_deduplicator, cam_ids, foo_dedu, frames)  # or frames appended inside info_for_dedu in tracking
+        #TODO: create dump with headers = 'cam_id frame timestamp category lat lon geohash speed yaw obj_id x y w h frame_tp timestamp_last_tp TPlat TPlon TPts'.split()
         """# TODO: accumulate trackers
         if i != 0 and (i+1) % N == 0:
             snapshot = persist_info_accumulated(deduplicated_trackers_list, i, kb)
             deduplicated_trackers_list.clear() 
         """
         # frames[0] not correct when more than one camera. It should be passed in info_for_deduplicator and returned in deduplicated_trackers
-        snapshot = persist_info(deduplicated_trackers, i, kb, with_pollution)
+        #snapshot = persist_info(deduplicated_trackers, i, kb, with_pollution)
         """
         snapshots.append(snapshot)
         if i != 0 and (i+1) % SNAP_PER_FEDERATION == 0:
             federate_info_accumulated(snapshots, dataclay_to_federate)
         """
-        federate_info(snapshot, external_backend_id)
+        #federate_info(snapshot, external_backend_id)
         i += 1
-        if i != 0 and i % NUM_ITERS_POLLUTION == 0 and with_pollution:
-            print("Executing pollution")
-            foo = analyze_pollution(foo)
-        if i != 0 and i % NUM_ITERS_FOR_CLEANING == 0:
-            # compss_barrier()
-            # delete objects based on timestamps
-            foo = remove_objects_from_dataclay(kb, foo)
+        # if i != 0 and i % NUM_ITERS_POLLUTION == 0 and with_pollution:
+        #     print("Executing pollution")
+        #     foo = analyze_pollution(foo)
+        # if i != 0 and i % NUM_ITERS_FOR_CLEANING == 0:
+        #     # compss_barrier()
+        #     # delete objects based on timestamps
+        #     foo = remove_objects_from_dataclay(kb, foo)
 
     compss_barrier()
     end_time = time.time()
@@ -329,8 +331,8 @@ def main():
     import sys
     import time
     import zmq
-    from dataclay.api import init, finish
-    from dataclay.exceptions.exceptions import DataClayException
+    #from dataclay.api import init, finish
+    #from dataclay.exceptions.exceptions import DataClayException
 		
     # Parse arguments to accept variable number of "IPs:Ports"
     parser = argparse.ArgumentParser()
@@ -339,8 +341,8 @@ def main():
     parser.add_argument("--with_pollution", nargs='?', const=True, type=str2bool, default=False)  # True as default
     args = parser.parse_args()
     
-    init()
-    from CityNS.classes import DKB
+    #init()
+    #from CityNS.classes import DKB
 
     # Register MQTT client to subscribe to MQTT server in 192.168.7.42
     if args.mqtt_wait:
@@ -348,9 +350,9 @@ def main():
         client.loop_start()
 
     # initialize all computing units in all workers
-    num_cus = 8
-    for i in range(num_cus):
-        init_task()
+    # num_cus = 8
+    # for i in range(num_cus):
+    #     init_task()
     compss_barrier()
     print(f"Init task completed {datetime.now()}")
     input("Press enter to continue...")
@@ -360,14 +362,14 @@ def main():
         publish_mqtt(client)
 
     # Dataclay KB generation
-    try:
-        kb = DKB.get_by_alias("DKB")
-    except DataClayException:
-        kb = DKB()
-        list_objects = ListOfObjects()
-        list_objects.make_persistent()
-        kb.list_objects = list_objects
-        kb.make_persistent("DKB")
+    # try:
+    #     kb = DKB.get_by_alias("DKB")
+    # except DataClayException:
+    #     kb = DKB()
+    #     list_objects = ListOfObjects()
+    #     list_objects.make_persistent()
+    #     kb.list_objects = list_objects
+    #     kb.make_persistent("DKB")
 
     ### ACK TO START WORKFLOW AT tkDNN ###
     for socket_ip in args.tkdnn_ips:
@@ -380,7 +382,7 @@ def main():
         sink.close()
         context.term()
 
-    execute_trackers(args.tkdnn_ips, kb, args.with_pollution)
+    execute_trackers(args.tkdnn_ips, args.with_pollution)
 
     if args.mqtt_wait:
         while CD_PROC < NUM_ITERS:
