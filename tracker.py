@@ -5,7 +5,7 @@ from pycompss.api.api import compss_barrier, compss_wait_on
 from pycompss.api.constraint import constraint
 from socket import timeout
 from utils import pixel2GPS
-#import deduplicator as dd
+import deduplicator as dd
 import paho.mqtt.client as mqtt
 from lib import track
 import socket
@@ -94,34 +94,76 @@ def deduplicate(trackers_list, cam_ids, foo_dedu, frames):
     return_message = dd.compute_deduplicator(trackers_list, cam_ids, frames)
     return return_message, foo_dedu
 
+# info_for_deduplicator: lat, lon, t.cl, velocity, yaw, t.id, pixel_x, pixel_y, pixel_w, pixel_h
+# output visuzlizer: 'cam_id frame timestamp category lat lon geohash speed yaw obj_id x y w h frame_tp timestamp_last_tp TPlat TPlon TPts'.split()
 
-def dump(id_cam, ts, trackers, iteration, list_boxes, info_for_deduplicator, box_coords):
+def dump(id_cam, ts, iteration, list_boxes, info_for_deduplicator, box_coords):
     import pygeohash as pgh
     import os
-    filename = "singlecamera.in"
+    filename = str(id_cam) + ".in"
     if not os.path.exists(filename):
         f = open(filename, "w+")
         f.close()
     with open(filename, "a+") as f:
         # for i, tracker in enumerate([t for t in trackers if t.traj[-1].frame == iteration]):
-        for i, tracker in enumerate(trackers):
-            if tracker.id not in [t.id for t in trackers if t.traj[-1].frame == iteration]:
-                continue
+        for i, box in enumerate(list_boxes):
             lat = info_for_deduplicator[i][0]  # round(info_for_deduplicator[i][0], 14)
             lon = info_for_deduplicator[i][1]  # round(info_for_deduplicator[i][1], 14)
             geohash = pgh.encode(lat, lon, precision=7)
             cl = info_for_deduplicator[i][2]
-            speed = abs(tracker.ekf.xEst.vel)  # info_for_deduplicator[i][3]
-            yaw = tracker.ekf.xEst.yaw  # info_for_deduplicator[i][4]
+            speed = info_for_deduplicator[i][3]
+            yaw = info_for_deduplicator[i][4]  # info_for_deduplicator[i][4]
+            trackId = info_for_deduplicator[i][5]
             pixel_x = info_for_deduplicator[i][6]  # OR list_boxes[tracker.idx].x  # pixels[tracker.idx][0]
             pixel_y = info_for_deduplicator[i][7]  # pixels[tracker.idx][1]
-            f.write(
-                # f"{id_cam} {iteration} {ts} {cl} {lat:.14f} {lon:.14f} {geohash} {speed} {yaw} {id_cam}_{tracker.id} \
-                f"{id_cam} {iteration} {ts} {cl} {lat} {lon} {geohash} {speed} {yaw} {id_cam}_{tracker.id} {pixel_x} \
-                {pixel_y} {list_boxes[tracker.idx].w} {list_boxes[tracker.idx].h} {box_coords[tracker.idx][0]} \
-                {box_coords[tracker.idx][1]} {box_coords[tracker.idx][2]} {box_coords[tracker.idx][3]} \
-                {box_coords[tracker.idx][4]} {box_coords[tracker.idx][5]} {box_coords[tracker.idx][6]} \
-                {box_coords[tracker.idx][7]}\n")
+            pixel_w = info_for_deduplicator[i][8]  # OR list_boxes[tracker.idx].x  # pixels[tracker.idx][0]
+            pixel_h = info_for_deduplicator[i][9]
+            f.write(f"{id_cam} {iteration} {ts} {cl} {lat} {lon} {geohash} {speed} {yaw} {id_cam}_{trackId} {pixel_x} {pixel_y} {pixel_w} {pixel_h}\n")
+
+def dump3(id_cam, ts, frame, list_boxes, info_for_deduplicator, box_coords): 
+    pred_info2 = np.zeros((len(list_boxes),11)) 
+    long = np.zeros(len(list_boxes)) 
+    lat = np.zeros(len(list_boxes)) 
+    for i, box in enumerate(list_boxes):
+        #   new => pred_info [0: fr_num x1 ][1-4: dect_xyxy x4 ][5: score x1 ][6: type_obj x1 ][7: id_obj x1 ][8-9: dect_middle x2 ][10: vel x1 ]
+        pred_info2[i,:] = np.concatenate(([frame],
+                                    [list_boxes[i].x],
+                                    [list_boxes[i].y],
+                                    [(list_boxes[i].x + list_boxes[i].w)],
+                                    [(list_boxes[i].y + list_boxes[i].h)],
+                                    [0.5],
+                                    [classReassign(info_for_deduplicator[i][2])],
+                                    [i],
+                                    [(list_boxes[i].x + list_boxes[i].w / 2) /1280],
+                                    [(list_boxes[i].y + list_boxes[i].h / 2) /720 ],
+                                    [0]
+                                  ), axis=0) # (num_pred, 11)
+        lat[i]=info_for_deduplicator[i][0]
+        long[i] = info_for_deduplicator[i][1]
+        ## Compute ts : ts=fr_num*fps + fr_num ; start by 0 s
+    ts = (pred_info2[:, 0]/8).reshape(-1, 1) # (num_pred, 1)
+    pred_info_ts = np.concatenate((ts, pred_info2[:, 1:]), axis=1) # (num_pred, 11) # change first column of fr_num for ts 
+    ## Converting the detections to a dataframe 
+    pred_df = pd.DataFrame(pred_info_ts, columns = ['ts','dect_xyxy_1', 'xyxy_2', 'xyxy_3', 'xyxy_4', 'score', 'type_obj', 'id_obj', 'dect_middle_1', 'middle_2', 'vel'])
+    pred_df['dect_lonlan_1'] =long
+    pred_df['lonlan_2'] = lat   # (num_pred, 1)
+    pred_df['fr_num'] = frame
+    pred_df['cam_id'] = 0 # (num_pred, 1)
+    pred_df['video_id'] = '/root/data/videos/Interurban_cams/0/C31S 15_10_2021 12_00_00 (UTC+02_00).avi'
+    
+    path_out = '/root/data/bsc_json'
+    
+    # name_json = f'{pred_info[:, 0][0].astype(int):05d}.json'
+    name_json = f'{frame:05d}.json'
+
+    ## create folder if it doesnt exist
+    if not os.path.exists(path_out):
+        os.makedirs(path_out)
+
+    ## Write json
+    path_all = os.path.join(path_out, name_json)
+    pred_df.to_json(path_all, orient='values') 
+
 
 
 @constraint(AppSoftware="xavier")
@@ -255,9 +297,8 @@ def execute_trackers(socket_ips, with_pollution):
                                                                                                     trackers_list[index],
                                                                                                     cur_index[index],
                                                                                                     init_point)
-
+            dump(cam_ids[index], timestamps[index], i, list_boxes, info_for_deduplicator[index], box_coords[index])
         #deduplicated_trackers, foo_dedu = deduplicate(info_for_deduplicator, cam_ids, foo_dedu, frames)  # or frames appended inside info_for_dedu in tracking
-        #TODO: create dump with headers = 'cam_id frame timestamp category lat lon geohash speed yaw obj_id x y w h frame_tp timestamp_last_tp TPlat TPlon TPts'.split()
         """# TODO: accumulate trackers
         if i != 0 and (i+1) % N == 0:
             snapshot = persist_info_accumulated(deduplicated_trackers_list, i, kb)

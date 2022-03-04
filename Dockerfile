@@ -65,17 +65,17 @@ RUN git clone https://github.com/class-euproject/tracker_CLASS.git -b bsc && \
 RUN apt install -y libeigen3-dev python3-matplotlib python-dev libgdal-dev libcereal-dev libyaml-cpp-dev libpthread-stubs0-dev
 
 
-# # Deduplicator project
-# RUN git clone https://github.com/class-euproject/deduplicator.git -b bsc && \
-#     cd deduplicator && \
-#     git submodule update --init --recursive && \
-#     sed -i '64s/.*/    double error;    \/\/ in meter/' masa_protocol/include/objects.hpp && \
-#     sed -i '69s/.*/    int idx;\n    int idy;\n/' masa_protocol/include/objects.hpp && \
-#     sed -i '75s/.*/        archive( camera_id, latitude, longitude, object_id, error, speed, orientation, category, idx, idy );/' masa_protocol/include/objects.hpp && \
-#     mkdir build && \
-#     cd build && \
-#     cmake .. && \
-#     make -j8
+# Deduplicator project
+RUN git clone https://gitlab.bsc.es/ppc-bsc/software/deduplicator -b bsc && \
+    cd deduplicator && \
+    git submodule update --init --recursive && \
+#    sed -i '64s/.*/    double error;    \/\/ in meter/' masa_protocol/include/objects.hpp && \
+#    sed -i '69s/.*/    int idx;\n    int idy;\n/' masa_protocol/include/objects.hpp && \
+#    sed -i '75s/.*/        archive( camera_id, latitude, longitude, object_id, error, speed, orientation, category, idx, idy );/' masa_protocol/include/objects.hpp && \
+    mkdir build && \
+    cd build && \
+    cmake .. && \
+    make -j8
 
 
 # Compss obstacle detection dependencies
