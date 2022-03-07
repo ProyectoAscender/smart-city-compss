@@ -82,8 +82,10 @@ RUN git clone https://gitlab.bsc.es/ppc-bsc/software/deduplicator -b bsc && \
 RUN python3 -m pip install geolib dataclay pymap3d zmq requests pygeohash paho-mqtt
 
 # Compss obstacle detection
-RUN git clone https://gitlab.bsc.es/ppc-bsc/software/smartcity-compss.git && \
-    cp /root/tracker_CLASS/build/track.cpython-36m-aarch64-linux-gnu.so smartcity-compss/lib
+RUN git clone https://gitlab.bsc.es/ppc-bsc/software/smartcity-compss.git
+    
+RUN cp /root/tracker_CLASS/build/track.cpython-36m-aarch64-linux-gnu.so smartcity-compss/lib
+RUN cp /root/deduplicator/build/deduplicator.cpython-36m-aarch64-linux-gnu.so smartcity-compss/lib
     # cp /root/deduplicator/build/deduplicator.cpython-36m-x86_64-linux-gnu.so . && \
 
 # Copy dataclay.jar from dataclay image

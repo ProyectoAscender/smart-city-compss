@@ -5,9 +5,9 @@ from pycompss.api.api import compss_barrier, compss_wait_on
 from pycompss.api.constraint import constraint
 from socket import timeout
 from utils import pixel2GPS
-import deduplicator as dd
 import paho.mqtt.client as mqtt
 from lib import track
+from lib import deduplicator as dd
 import socket
 import os
 
