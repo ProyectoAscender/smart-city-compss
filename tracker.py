@@ -1,8 +1,12 @@
-from datetime import datetime
 from pycompss.api.parameter import *
 from pycompss.api.task import task
 from pycompss.api.api import compss_barrier, compss_wait_on
 from pycompss.api.constraint import constraint
+
+from dataclay.api import init, finish
+from dataclay.exceptions.exceptions import DataClayException
+
+from datetime import datetime
 from socket import timeout
 from utils import pixel2GPS
 import paho.mqtt.client as mqtt
@@ -10,8 +14,11 @@ from lib import track
 from lib import deduplicator as dd
 import socket
 import os
+import pandas as pd
+import json
+from shapely import geometry
 
-NUM_ITERS = 400
+NUM_ITERS = 100
 NUM_ITERS_POLLUTION = 25
 SNAP_PER_FEDERATION = 15
 N = 5
@@ -19,7 +26,38 @@ NUM_ITERS_FOR_CLEANING = 300
 CD_PROC = 0
 
 pollution_file_name = "pollution.csv"
+roi_file_path = "/root/data/florencia/arcipressi/roi/arcipressi-"
+#roi_path = os.path.realpath(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'data', 'mydata.json'))
 
+def getRoi(roi_path):
+    df = pd.read_csv(roi_path)
+    region_attributes_list = []
+    for attribute in df.region_attributes.values:
+        attribute = attribute.replace('{', '').replace('}', '').split(',')
+        this_row = {}
+        for a in attribute:
+            a = a.replace('"', '')
+            a = a.split(':')
+            try:
+                try:
+                    this_row.update({str(a[0]) : int(a[1])})
+                except:
+                    this_row.update({str(a[0]) : str(a[1])})
+            except:
+                this_row.update({str(a[0]) : ''})
+        region_attributes_list.append(this_row)
+    region_shape = pd.DataFrame(columns=['x_values','y_values'])
+    for attribute in df.region_shape_attributes.values:
+        js = json.loads(attribute)
+        new_row = {'x_values': js["all_points_x"], 'y_values': js["all_points_y"] }
+        region_shape = region_shape.append(new_row, ignore_index=True)
+    new_df = pd.concat([pd.DataFrame(region_attributes_list), 
+                        region_shape],
+                    axis=1, ignore_index=False)
+    new_df.reset_index(inplace=True)
+    new_df = new_df.rename(columns = {'index':'id'})
+    new_df['id'] = new_df['id'] + 1
+    return new_df
 
 @task(returns=3, list_boxes=IN, trackers=IN, cur_index=IN, init_point=IN)
 def execute_tracking(list_boxes, trackers, cur_index, init_point):
@@ -65,7 +103,17 @@ def receive_boxes(socket_ip, dummy):
             box_coords = []
             lat, lon = struct.unpack_from("dd", message[1 + int_size + unsigned_long_size:1 + int_size + unsigned_long_size
                                                                                         + double_size * 2])
-    
+            #   // box_vector: x,y,w,h (resized)
+            #     // coords: north,east (convertToMeters (unresized)) 
+            #     // boxCoords: 4 esquinas coordenadas (convertedToGeo (unresized))
+            #     // corrdsGeo: NO se usa
+            #     collectBoxInfo(cam->detNN->batchDetected, box_vector, coords, coordsGeo, boxCoords, scale_x, scale_y, *cam);
+            #     unsigned int size;
+            #     char *data = prepareMessageUDP(box_vector, coords, boxCoords, n_frame, cam->id,
+            #                                    cam->adfGeoTransform[3], cam->adfGeoTransform[0], // pasamos pto.ref
+            #                                    &size, scale_x, scale_y);
+            print(range(1 + int_size + unsigned_long_size + double_size * 2, len(message),
+                                double_size * 10 + int_size + 1 + float_size * 4))
             init_point = (lat, lon)
             for offset in range(1 + int_size + unsigned_long_size + double_size * 2, len(message),
                                 double_size * 10 + int_size + 1 + float_size * 4):
@@ -73,10 +121,14 @@ def receive_boxes(socket_ip, dummy):
                                                                                 offset:offset + double_size * 2 + int_size + 1])
                 x, y, w, h = struct.unpack_from('ffff', message[offset + double_size * 2 + int_size + 1:offset + double_size * 2
                                                                                 + int_size + 1 + float_size * 4])
+                print(f'Receive_boxes:x: {int(x)}, y: {int(y)}, w: {int(w)}, h: {int(h)}')
+                print(f'list_boxes -- north :  {north} -- east: {east} ')
+
                 boxes.append(track.obj_m(north, east, frame_number, ord(obj_class), int(w), int(h), int(x), int(y), 0.0))
                 lat_ur, lon_ur, lat_lr, lon_lr, lat_ll, lon_ll, lat_ul, lon_ul = struct.unpack_from('dddddddd', message[
                                                                                 offset + double_size * 2 + int_size + 1 +
                                                                                 float_size * 4:])
+                                                                                
                 box_coords.append((lat_ur, lon_ur, lat_lr, lon_lr, lat_ll, lon_ll, lat_ul, lon_ul))
         except socket.error as e:
             no_read = True
@@ -91,13 +143,87 @@ def receive_boxes(socket_ip, dummy):
 @constraint(AppSoftware="xavier")
 @task(trackers_list=COLLECTION_IN, cam_ids=COLLECTION_IN, foo_dedu=INOUT, frames=COLLECTION_IN)
 def deduplicate(trackers_list, cam_ids, foo_dedu, frames):
-    return_message = dd.compute_deduplicator(trackers_list, cam_ids, frames)
+    return_message = dd.compute_deduplicator(trackers_list, cam_ids, frames,False)
     return return_message, foo_dedu
+
+def semantic_analysis(timestamp, iteration, info_for_deduplicator, trackers, polys, kb):
+    from CityNS.classes import Alert
+    alertList = []
+    alertListDC = []
+
+    for i, box in enumerate(info_for_deduplicator):
+        id_cam = box[0]
+        cl = box[2]
+        speed = box[3]
+        yaw = box[4]  # info_for_deduplicator[i][4]
+        trackId = box[5]
+        pixel_x = box[6]  # OR list_boxes[tracker.idx].x  # pixels[tracker.idx][0]
+        pixel_y = box[7]  # pixels[tracker.idx][1]
+        pixel_w = box[8]  # OR list_boxes[tracker.idx].x  # pixels[tracker.idx][0]
+        pixel_h = box[9]
+
+        if (cl == 1):
+            for pol in polys:
+                inOut = pol.contains(geometry.Point(pixel_x + pixel_w/2, pixel_y + pixel_h))
+                if (inOut):
+                    alertList.append(1)
+                    alert = Alert( source = id_cam,
+                                   alert_category = "hazardOnRoad", 
+                                   severity="informational", 
+                                   longitude = info_for_deduplicator[i][1],
+                                   latitude = info_for_deduplicator[i][0],
+                                   area = 'arcipressi', 
+                                   description = 'car on the cross',
+                                   timestamp = timestamp)
+                    alert.make_persistent()
+                    #alerListDC.append(alert)
+                    # (source="str", alert_category="str", severity="str", longitude="float", latitude="float",
+                    #  timestamp="anything", valid_from="anything", valid_to="anything", area="str",
+                    # description="str", data="anything")
+                    print('-------------------------')
+                    print(f'Semantic car IN: cam 20936,timestamp {timestamp}, i: {iteration}, trackID: {trackId}, pointX{pixel_x + pixel_w/2}, pointY: {pixel_y + pixel_h}  ')
+                    print(f'In Polygon {pol}')
+                else:
+                    alertList.append(0)
+        else: 
+            alertList.append(0)
+
+    return alertList, alertListDC
+
+
+
 
 # info_for_deduplicator: lat, lon, t.cl, velocity, yaw, t.id, pixel_x, pixel_y, pixel_w, pixel_h
 # output visuzlizer: 'cam_id frame timestamp category lat lon geohash speed yaw obj_id x y w h frame_tp timestamp_last_tp TPlat TPlon TPts'.split()
 
-def dump(id_cam, ts, iteration, list_boxes, info_for_deduplicator, box_coords):
+def dump_deduplicated(info_deduplicated, iteration):
+    import pygeohash as pgh
+    import os
+    filename = "20936-20937.in"
+    if not os.path.exists(filename):
+        f = open(filename, "w+")
+        f.close()
+    ts = info_deduplicated[0]
+    info = info_deduplicated[1]
+    frame = info[0][11]
+    with open(filename, "a+") as f:
+        # for i, tracker in enumerate([t for t in trackers if t.traj[-1].frame == iteration]):
+        for i, box in enumerate(info):
+            id_cam = info[i][0]
+            lat = info[i][5]  # round(info_for_deduplicator[i][0], 14)
+            lon = info[i][6]  # round(info_for_deduplicator[i][1], 14)
+            geohash = pgh.encode(lat, lon, precision=7)
+            cl = info[i][2]
+            speed = info[i][3]
+            yaw = info[i][4]  # info_for_deduplicator[i][4]
+            trackId = info[i][1]
+            pixel_x = info[i][7]  # OR list_boxes[tracker.idx].x  # pixels[tracker.idx][0]
+            pixel_y = info[i][8]  # pixels[tracker.idx][1]
+            pixel_w = info[i][9]  # OR list_boxes[tracker.idx].x  # pixels[tracker.idx][0]
+            pixel_h = info[i][10]
+            f.write(f"{id_cam} {iteration} {ts} {cl} {lat} {lon} {geohash} {speed} {yaw} {id_cam}_{trackId} {pixel_x} {pixel_y} {pixel_w} {pixel_h}\n")
+
+def dump(id_cam, ts, iteration, info_for_deduplicator, alertList):
     import pygeohash as pgh
     import os
     filename = str(id_cam) + ".in"
@@ -106,7 +232,7 @@ def dump(id_cam, ts, iteration, list_boxes, info_for_deduplicator, box_coords):
         f.close()
     with open(filename, "a+") as f:
         # for i, tracker in enumerate([t for t in trackers if t.traj[-1].frame == iteration]):
-        for i, box in enumerate(list_boxes):
+        for i, box in enumerate(info_for_deduplicator):
             lat = info_for_deduplicator[i][0]  # round(info_for_deduplicator[i][0], 14)
             lon = info_for_deduplicator[i][1]  # round(info_for_deduplicator[i][1], 14)
             geohash = pgh.encode(lat, lon, precision=7)
@@ -118,7 +244,9 @@ def dump(id_cam, ts, iteration, list_boxes, info_for_deduplicator, box_coords):
             pixel_y = info_for_deduplicator[i][7]  # pixels[tracker.idx][1]
             pixel_w = info_for_deduplicator[i][8]  # OR list_boxes[tracker.idx].x  # pixels[tracker.idx][0]
             pixel_h = info_for_deduplicator[i][9]
-            f.write(f"{id_cam} {iteration} {ts} {cl} {lat} {lon} {geohash} {speed} {yaw} {id_cam}_{trackId} {pixel_x} {pixel_y} {pixel_w} {pixel_h}\n")
+            inOut = alertList[i]
+
+            f.write(f"{id_cam} {iteration} {ts} {cl} {lat} {lon} {geohash} {speed} {yaw} {id_cam}_{trackId} {pixel_x} {pixel_y} {pixel_w} {pixel_h} {inOut}\n")
 
 def dump3(id_cam, ts, frame, list_boxes, info_for_deduplicator, box_coords): 
     pred_info2 = np.zeros((len(list_boxes),11)) 
@@ -264,7 +392,7 @@ def boxes_and_track(socket_ip, trackers_list, tracker_indexes, cur_index):
     return execute_tracking(list_boxes, trackers_list, tracker_indexes, cur_index)
 
 
-def execute_trackers(socket_ips, with_pollution):
+def execute_trackers(socket_ips, with_pollution, kb):
     import uuid
     import time
     import sys
@@ -281,6 +409,12 @@ def execute_trackers(socket_ips, with_pollution):
     box_coords = [0] * len(socket_ips)
     frames = [0] * len(socket_ips)
 
+    dfPol = getRoi(roi_file_path + '20936.csv')
+    dfPol = dfPol[dfPol.type == "cross"]
+    polys = []
+    for index, row in dfPol.iterrows():
+        roi_points = list(zip(row['x_values'] ,row['y_values'] ))
+        polys.append(geometry.Polygon(roi_points))
     #federation_ip, federation_port = "192.168.7.32", 11034  # TODO: change port accordingly
     #dataclay_to_federate = register_dataclay(federation_ip, federation_port)
     #external_backend_id = get_external_backend_id_by_name("DS1", dataclay_to_federate)
@@ -290,15 +424,24 @@ def execute_trackers(socket_ips, with_pollution):
     start_time = time.time()
     foo_dedu = foo = None
     while i < NUM_ITERS:
+        print(f'i is: {i}')
         for index, socket_ip in enumerate(socket_ips):
+            print(f'index is: {index} and socket_ips is {socket_ip}')
             cam_ids[index], timestamps[index], list_boxes, reception_dummies[index], box_coords[index], init_point, frames[index] = \
-                receive_boxes(socket_ip, reception_dummies[index])
+                                receive_boxes(socket_ip, reception_dummies[index])
+            #print(f'box_coords: {box_coords[index]}')
+            #print(f'list_boxes -- north :  {list_boxes[0].x} -- east: {list_boxes[0].y} ')
+            print('Pre track')
             trackers_list[index], cur_index[index], info_for_deduplicator[index] = execute_tracking(list_boxes,
                                                                                                     trackers_list[index],
                                                                                                     cur_index[index],
                                                                                                     init_point)
-            dump(cam_ids[index], timestamps[index], i, list_boxes, info_for_deduplicator[index], box_coords[index])
-        #deduplicated_trackers, foo_dedu = deduplicate(info_for_deduplicator, cam_ids, foo_dedu, frames)  # or frames appended inside info_for_dedu in tracking
+            print('Post track')
+
+            alertsList, alertListDC = semantic_analysis(timestamps[index], i, info_for_deduplicator[index] ,trackers_list[index], polys, kb)
+            dump(cam_ids[index], timestamps[index], i, info_for_deduplicator[index], alertsList)
+        # info_deduplicated, foo_dedu = deduplicate(info_for_deduplicator, cam_ids, foo_dedu, frames)
+        # dump_deduplicated(info_deduplicated, i)  # or frames appended inside info_for_dedu in tracking
         """# TODO: accumulate trackers
         if i != 0 and (i+1) % N == 0:
             snapshot = persist_info_accumulated(deduplicated_trackers_list, i, kb)
@@ -326,37 +469,6 @@ def execute_trackers(socket_ips, with_pollution):
     print("Exec Inner Time: " + str(end_time - start_time))
     print("Exec Inner Time per Iteration: " + str((end_time - start_time) / NUM_ITERS))
 
-
-def on_message(client, userdata, message):
-    import time
-    global CD_PROC
-    CD_PROC += 1
-    received_time = time.time()
-    msg = str(message.payload.decode('utf-8'))
-    print(f"Received message = \"{msg}\" at time {received_time}")
-    f = open("cd_log.txt", "a")
-    f.write(msg)
-    f.close()
-
-
-def publish_mqtt(client):
-    client.publish("test", "Start of the execution of the COMPSs workflow")
-
-
-def register_mqtt():
-    client = mqtt.Client()
-    try:
-        client.connect("192.168.7.42")  # MQTT server in Modena cloud
-    except timeout as e:
-        print(e)
-        print("VPN Connection not active. Needed for MQTT.")
-        exit()
-    client.on_message=on_message
-    client.subscribe("test")
-    client.subscribe("tp-out")
-    client.subscribe("cd-out")
-    return client
-
 def str2bool(v):
     if isinstance(v, bool):
        return v
@@ -372,8 +484,6 @@ def main():
     import sys
     import time
     import zmq
-    #from dataclay.api import init, finish
-    #from dataclay.exceptions.exceptions import DataClayException
 		
     # Parse arguments to accept variable number of "IPs:Ports"
     parser = argparse.ArgumentParser()
@@ -382,13 +492,10 @@ def main():
     parser.add_argument("--with_pollution", nargs='?', const=True, type=str2bool, default=False)  # True as default
     args = parser.parse_args()
     
-    #init()
-    #from CityNS.classes import DKB
-
-    # Register MQTT client to subscribe to MQTT server in 192.168.7.42
-    if args.mqtt_wait:
-        client = register_mqtt()
-        client.loop_start()
+    # Initialize dataclay
+    init()
+    # Load dataclay DKB class
+    from CityNS.classes import DKB
 
     # initialize all computing units in all workers
     # num_cus = 8
@@ -398,19 +505,12 @@ def main():
     print(f"Init task completed {datetime.now()}")
     input("Press enter to continue...")
 
-    # Publish to the MQTT broker that the execution has started
-    if args.mqtt_wait:
-        publish_mqtt(client)
-
-    # Dataclay KB generation
-    # try:
-    #     kb = DKB.get_by_alias("DKB")
-    # except DataClayException:
-    #     kb = DKB()
-    #     list_objects = ListOfObjects()
-    #     list_objects.make_persistent()
-    #     kb.list_objects = list_objects
-    #     kb.make_persistent("DKB")
+    #Dataclay KB generation
+    try:
+        kb = DKB.get_by_alias("DKB")
+    except DataClayException:
+        kb = DKB()
+        kb.make_persistent("DKB")
 
     ### ACK TO START WORKFLOW AT tkDNN ###
     for socket_ip in args.tkdnn_ips:
@@ -423,11 +523,8 @@ def main():
         sink.close()
         context.term()
 
-    execute_trackers(args.tkdnn_ips, args.with_pollution)
+    execute_trackers(args.tkdnn_ips, args.with_pollution,kb)
 
-    if args.mqtt_wait:
-        while CD_PROC < NUM_ITERS:
-            pass
 
     print("Exiting Application...")
     finish()

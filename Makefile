@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 TAG = 2.10
-BUILDER = registry.gitlab.bsc.es/ppc-bsc/software/compss/compss:$(TAG)
+BUILDER = bscppc/compss:$(TAG)
 PREFIX =  registry.gitlab.bsc.es/ppc-bsc/software/smartcity-compss/
 PREFIX2 = bscppc/
 IMAGE = smartcity-compss
@@ -24,7 +24,7 @@ image:
 	docker image tag $(PREFIX)$(IMAGE):$(TAG) $(PREFIX2)$(IMAGE):$(TAG)
 
 push: image
-	docker push $(PREFIX)$(IMAGE):$(TAG)
 	docker push $(PREFIX2)$(IMAGE):$(TAG)
+#	docker push $(PREFIX)$(IMAGE):$(TAG)
 
 clean:
