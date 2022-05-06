@@ -5,8 +5,8 @@ def main():
 
     # Env variables
     dataclay_jar_path = "dataclay/dataclay.jar"
-    user = "CityUser"
-    password = "p4ssw0rd"
+    user = "defaultUser"
+    password = "defaultPass"
     namespace = "CityNS"
     stubspath = "./stubs"
     

@@ -52,13 +52,6 @@ RUN git clone https://github.com/pybind/pybind11.git && \
     make install
 
 
-# Tracker class project
-RUN git clone https://github.com/class-euproject/tracker_CLASS.git -b bsc && \
-    cd tracker_CLASS && \
-    mkdir build && \
-    cd build && \
-    cmake .. && \
-    make -j8
 
 
 # Deduplicator dependencies
@@ -83,8 +76,18 @@ RUN python3 -m pip install geolib dataclay pymap3d zmq requests pygeohash paho-m
 
 # Compss obstacle detection
 RUN git clone https://gitlab.bsc.es/ppc-bsc/software/smartcity-compss.git
-    
-RUN cp /root/tracker_CLASS/build/track.cpython-36m-aarch64-linux-gnu.so smartcity-compss/lib
+
+RUN echo "hola1"
+# Tracker class project
+RUN git clone https://gitlab.bsc.es/ppc-bsc/software/tracker.git -b dev && \
+    cd tracker && \
+    git submodule update --init --recursive && \
+    mkdir build  && \
+    cd build && \
+    cmake .. -DWITH_MATPLOTLIB=OFF && \
+    make -j8
+
+RUN cp /root/tracker/build/track.cpython-36m-aarch64-linux-gnu.so smartcity-compss/lib
 RUN cp /root/deduplicator/build/deduplicator.cpython-36m-aarch64-linux-gnu.so smartcity-compss/lib
     # cp /root/deduplicator/build/deduplicator.cpython-36m-x86_64-linux-gnu.so . && \
 
