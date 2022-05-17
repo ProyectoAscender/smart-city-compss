@@ -72,12 +72,11 @@ RUN git clone https://gitlab.bsc.es/ppc-bsc/software/deduplicator -b bsc && \
 
 
 # Compss obstacle detection dependencies
-RUN python3 -m pip install geolib dataclay pymap3d zmq requests pygeohash paho-mqtt pandas shapely
+RUN python3 -m pip install geolib dataclay pymap3d zmq requests pygeohash paho-mqtt pandas shapely geopandas
 
 # Compss obstacle detection
 RUN git clone https://gitlab.bsc.es/ppc-bsc/software/smartcity-compss.git
 
-RUN echo "hola1"
 # Tracker class project
 RUN git clone https://gitlab.bsc.es/ppc-bsc/software/tracker.git -b dev && \
     cd tracker && \
