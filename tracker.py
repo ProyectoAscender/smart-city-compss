@@ -21,7 +21,7 @@ from geopandas import GeoDataFrame
 from shapely import geometry
 import numpy as np
 
-NUM_ITERS = 200
+NUM_ITERS = 8000
 NUM_ITERS_POLLUTION = 25
 SNAP_PER_FEDERATION = 15
 N = 5
@@ -151,7 +151,7 @@ def deduplicate(trackers_list, cam_ids, foo_dedu, frames):
     return_message = dd.compute_deduplicator(trackers_list, cam_ids, frames,False)
     return return_message, foo_dedu
 
-
+@task(returns = 1, kb = IN)
 def getResistenzaStatus(kb):
     if (kb.traffic_lights[(11.1831603045325, 43.75873372968)].status == 'Red'):
         vehLights = {'04': False, '05': False} # RED
@@ -164,11 +164,25 @@ def getResistenzaStatus(kb):
         pedLights = {'04': True, '05': True} # GREEN, YELLOW
     return {'pedLights': pedLights, 'vehLights': vehLights, 'tramApproach':kb.tram_in_station}
 
-def semantic_analysis(id_cam,timestamp, iteration, info_for_deduplicator, trackers, polys, kb, areaState):
+def getResistenzaStatus2(current_frame, id_cam):
+   
+
+    filename = './' + str(id_cam) + '_' + str(NUM_ITERS) + '_states.in'
+    df = pd.read_csv(filename, names = ['id_cam','frame','pedLights04','pedLights05','vehLights04''vehLights05','tramApproach'])
+    q = df.loc[df.frame == current_frame]
+    vehLights = {'04': q['vehLights04'], '05': q['vehLights05']}     
+    pedLights = {'04': q['pedLights04'], '05': q['pedLights05']} # RED
+
+
+    return {'pedLights': pedLights, 'vehLights': vehLights, 'tramApproach':kb.tram_in_station}
+             = semantic_analysis(cam_ids[index], timestamps[index], i, info_for_deduplicator[index] , trackers_list[index], polys, kb, areaState)
+
+@task(returns=1,id_cam=IN, timestamp = IN, info_for_deduplicator=IN,polys=IN, kb=IN, areaState=IN)
+def semantic_analysis(id_cam,timestamp, info_for_deduplicator, polys, kb, areaState):
     # Alert list will contains binary alert value for inserting into csv
     from CityNS.classes import Alert
     alertList = []    
-    alarmTime = 3000
+    alarmTime = 10000
     area = 'resistenza'
     carQueueLength = 0
     alertQueueFlag = False
@@ -278,7 +292,7 @@ def semantic_analysis(id_cam,timestamp, iteration, info_for_deduplicator, tracke
                             latitude = 43.75873372968,
                             area = area, 
                             description = description,
-                            data = data,
+                            #data = data,
                             timestamp = datetime.utcfromtimestamp(timestamp / 1000),
                             valid_from = datetime.utcfromtimestamp(timestamp / 1000),
                             valid_to = datetime.utcfromtimestamp((timestamp + alarmTime) / 1000))
@@ -320,6 +334,24 @@ def dump_deduplicated(info_deduplicated, iteration):
             pixel_h = info[i][10]
             f.write(f"{id_cam} {iteration} {ts} {cl} {lat} {lon} {geohash} {speed} {yaw} {id_cam}_{trackId} {pixel_x} {pixel_y} {pixel_w} {pixel_h}\n")
 
+@task(id_cam=IN, frame = IN, areaState = IN)
+def dump_state(id_cam, frame, areaState):
+
+    import os
+    filename = './' + str(id_cam) + '_' + str(NUM_ITERS) + '_states.in'
+    if not os.path.exists(filename):
+        f = open(filename, "w+")
+        f.close()
+    with open(filename, "a+") as f:
+
+        f.write(f"{id_cam} {frame} {int(areaState['pedLights']['04'])} {int(areaState['pedLights']['05'])} {int(areaState['vehLights']['04'])} {int(areaState['vehLights']['05'])} {int(areaState['tramApproach'])}\n")
+   
+
+
+
+
+
+@task(id_cam=IN, ts = IN, iteration = IN, info_for_deduplicator=IN,alertList = IN)
 def dump(id_cam, ts, iteration, info_for_deduplicator, alertList):
     import pygeohash as pgh
     import os
@@ -524,6 +556,7 @@ def execute_trackers(socket_ips, with_dataclay, kb):
     start_time = time.time()
     foo_dedu = foo = None
     while i < NUM_ITERS:
+        print(i)
 
         # readScenarioState: trafficLights, tram NGAP
         areaState = getResistenzaStatus(kb)
@@ -535,9 +568,11 @@ def execute_trackers(socket_ips, with_dataclay, kb):
                                                                                                     trackers_list[index],
                                                                                                     cur_index[index],
                                                                                                      init_point)
+
         # info_deduplicated, foo_dedu = deduplicate(info_for_deduplicator, cam_ids, foo_dedu, frames)
-            alertsList = semantic_analysis(cam_ids[index], timestamps[index], i, info_for_deduplicator[index] , trackers_list[index], polys, kb, areaState)
+            alertsList = semantic_analysis(cam_ids[index], timestamps[index], info_for_deduplicator[index] , polys, kb, areaState)
             dump(cam_ids[index], timestamps[index], frames[index], info_for_deduplicator[index], alertsList)
+            dump_state(cam_ids[index],frames[index], areaState)
         # dump_deduplicated(info_deduplicated, i)  # or frames appended inside info_for_dedu in tracking
         """# TODO: accumulate trackers
         if i != 0 and (i+1) % N == 0:
@@ -606,6 +641,7 @@ def main():
     if (args.with_dataclay):
         #Dataclay KB generation
         try:
+            print('kb initiated right')
             kb = DKB.get_by_alias("DKB")
         except DataClayException:
             kb = DKB()

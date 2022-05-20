@@ -1,13 +1,20 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Project>
     <MasterNode/>
-    <ComputeNode Name="172.17.0.3">
+    <ComputeNode Name="192.168.50.174">
         <InstallDir>/opt/COMPSs/</InstallDir>
         <WorkingDir>/tmp/COMPSsWorker/</WorkingDir>
-	<User>root</User>
-        <Application>
-		<Pythonpath>/root/smartcity-compss</Pythonpath>
-        </Application>
+        <User>eudald</User>
     </ComputeNode>
+    <ComputeNode Name="192.168.50.165">
+        <InstallDir>/opt/COMPSs/</InstallDir>
+        <WorkingDir>/tmp/COMPSsWorker/</WorkingDir>
+        <User>eudald</User>
+    </ComputeNode>
+    <ComputeNode Name="192.168.50.17">
+        <InstallDir>/opt/COMPSs/</InstallDir>
+        <WorkingDir>/tmp/COMPSsWorker/</WorkingDir>
+        <User>eudald</User>
+    </ComputeNode>
+​
 </Project>
-

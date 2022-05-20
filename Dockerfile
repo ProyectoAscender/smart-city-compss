@@ -16,7 +16,7 @@ RUN apt update && \
     echo ". /etc/profile.d/compss.sh" >> /root/.bashrc
 
 RUN apt install -qq -y openjdk-8-jre-headless openssh-server openssh-client uuid-runtime python3 python3-pip python3-setuptools libgmp3-dev flex bison libbison-dev texinfo libffi-dev libxml2 gfortran libpapi-dev papi-tools
-
+                            
 # SSH
 RUN apt install -qq -y openssh-server openssh-client && \
     ssh-keygen -q -N "" -f ~/.ssh/id_rsa && \
@@ -58,17 +58,17 @@ RUN git clone https://github.com/pybind/pybind11.git && \
 RUN apt install -y libeigen3-dev python3-matplotlib python-dev libgdal-dev libcereal-dev libyaml-cpp-dev libpthread-stubs0-dev
 
 
-# Deduplicator project
-RUN git clone https://gitlab.bsc.es/ppc-bsc/software/deduplicator -b bsc && \
-    cd deduplicator && \
-    git submodule update --init --recursive && \
-#    sed -i '64s/.*/    double error;    \/\/ in meter/' masa_protocol/include/objects.hpp && \
-#    sed -i '69s/.*/    int idx;\n    int idy;\n/' masa_protocol/include/objects.hpp && \
-#    sed -i '75s/.*/        archive( camera_id, latitude, longitude, object_id, error, speed, orientation, category, idx, idy );/' masa_protocol/include/objects.hpp && \
-    mkdir build && \
-    cd build && \
-    cmake .. && \
-    make -j8
+# # Deduplicator project
+# RUN git clone https://gitlab.bsc.es/ppc-bsc/software/deduplicator -b bsc && \
+#     cd deduplicator && \
+#     git submodule update --init --recursive && \
+# #    sed -i '64s/.*/    double error;    \/\/ in meter/' masa_protocol/include/objects.hpp && \
+# #    sed -i '69s/.*/    int idx;\n    int idy;\n/' masa_protocol/include/objects.hpp && \
+# #    sed -i '75s/.*/        archive( camera_id, latitude, longitude, object_id, error, speed, orientation, category, idx, idy );/' masa_protocol/include/objects.hpp && \
+#     mkdir build && \
+#     cd build && \
+#     cmake .. && \
+#     make -j8
 
 
 # Compss obstacle detection dependencies
@@ -87,7 +87,7 @@ RUN git clone https://gitlab.bsc.es/ppc-bsc/software/tracker.git -b dev && \
     make -j8
 
 RUN cp /root/tracker/build/track.cpython-36m-aarch64-linux-gnu.so smartcity-compss/lib
-RUN cp /root/deduplicator/build/deduplicator.cpython-36m-aarch64-linux-gnu.so smartcity-compss/lib
+#RUN cp /root/deduplicator/build/deduplicator.cpython-36m-aarch64-linux-gnu.so smartcity-compss/lib
     # cp /root/deduplicator/build/deduplicator.cpython-36m-x86_64-linux-gnu.so . && \
 
 # Copy dataclay.jar from dataclay image
