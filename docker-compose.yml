@@ -1,0 +1,35 @@
+version: '3.9'
+services:  
+  object-tracking:
+   # image: bscppc/smartcity-compss:2.7-nfr
+   image: bscppc/smartcity-compss:2.7-nfr2
+   tty: true
+   network_mode: bridge
+   ports:
+     - "43001:43001"
+     - "43002:43002"
+   depends_on:
+     - dcinitializer
+   volumes:
+     - dataclay-init:/srv/dataclay/shared:ro
+     - ~/deploy-bsc/smartcity-compss:/root/smartcity-compss
+     - /root/smartcity-compss/lib
+   environment:
+     
+    
+    
+     - LOGICMODULE_PORT_TCP=11034
+     - LOGICMODULE_HOST=192.168.121.182
+
+
+
+
+     - USER=ElasticUser
+     - PASS=defaultPass
+     - DATASET=defaultDS
+     - NAMESPACE=CityNS
+     - NAMESPACE_JAVA=ElasticNFR
+     - STUBSPATH=/root/smartcity-compss/stubs
+     - CONTRACT_ID_PATH=/srv/dataclay/shared/CityNS_contractid
+   command:
+     - bash
