@@ -8,10 +8,10 @@ from dataclay.exceptions.exceptions import DataClayException
 
 from datetime import datetime
 from socket import timeout
-from utils import pixel2GPS
+#from utils import pixel2GPS
 import paho.mqtt.client as mqtt
 from lib import track
-from lib import deduplicator as dd
+#from lib import deduplicator as dd
 import socket
 import os
 import json
@@ -21,7 +21,7 @@ from geopandas import GeoDataFrame
 from shapely import geometry
 import numpy as np
 
-NUM_ITERS = 8000
+NUM_ITERS = 300
 NUM_ITERS_POLLUTION = 25
 SNAP_PER_FEDERATION = 15
 N = 5
@@ -175,7 +175,6 @@ def getResistenzaStatus2(current_frame, id_cam):
 
 
     return {'pedLights': pedLights, 'vehLights': vehLights, 'tramApproach':kb.tram_in_station}
-             = semantic_analysis(cam_ids[index], timestamps[index], i, info_for_deduplicator[index] , trackers_list[index], polys, kb, areaState)
 
 @task(returns=1,id_cam=IN, timestamp = IN, info_for_deduplicator=IN,polys=IN, kb=IN, areaState=IN)
 def semantic_analysis(id_cam,timestamp, info_for_deduplicator, polys, kb, areaState):
