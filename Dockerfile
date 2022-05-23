@@ -74,6 +74,8 @@ RUN apt install -y libeigen3-dev python3-matplotlib python-dev libgdal-dev libce
 # Compss obstacle detection dependencies
 RUN python3 -m pip install geolib dataclay pymap3d zmq requests pygeohash paho-mqtt pandas shapely geopandas
 
+RUN echo "dummy2222"
+RUN apt install -qq -y openjdk-8-jdk
 # Compss obstacle detection
 RUN git clone https://gitlab.bsc.es/ppc-bsc/software/smartcity-compss.git
 
@@ -93,6 +95,7 @@ RUN cp /root/tracker/build/track.cpython-36m-aarch64-linux-gnu.so smartcity-comp
 # Copy dataclay.jar from dataclay image
 #TODO: use env variable for version
 COPY --from=bscdataclay/logicmodule:dev20210603-alpine /home/dataclayusr/dataclay/dataclay.jar /root/smartcity-compss/dataclay/dataclay.jar
+ENV JAVA_HOME=/usr/lib/jvm/java-8-openjdk-arm64
 
 # Establishing entrypoint for downloading the stubs and making the image ready at runtime
 WORKDIR /root/smartcity-compss
