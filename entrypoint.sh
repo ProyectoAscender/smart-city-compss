@@ -8,9 +8,8 @@ if [[ "$1" == "master" ]]; then
 python3 entrypoint.py
 echo "..deploying master"
 shift 1
-fi
 # If this image is master
-if [[ "$1" == "worker" ]]; then
+else
 echo ".. deploying worker"
 MASTER_USER="flo01"
 LOGICMODULE_HOST="192.168.121.248"
