@@ -14,7 +14,7 @@ if [[ "$1" == "worker" ]]; then
 echo ".. deploying worker"
 MASTER_USER="flo01"
 LOGICMODULE_HOST="192.168.121.248"
-PATH_TO_STUBS_MASTER="/root/smartcity-compss/stubs/"
+PATH_TO_STUBS_MASTER="/home/flo01/smartcity-compss/stubs/"
 whoami
 ls -la .
 ls -la ${MASTER_USER}@${LOGICMODULE_HOST}:${PATH_TO_STUBS_MASTER}
