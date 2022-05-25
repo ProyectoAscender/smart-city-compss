@@ -14,7 +14,7 @@ do
 done
 
 
-runcompss -d --python_interpreter=python3 --master_name=192.168.121.248 --master_port=43001 \
+runcompss -d --python_interpreter=python3 --lang=python --master_name=192.168.121.248 --master_port=43001 \
           --scheduler="es.bsc.compss.scheduler.fifo.FIFOScheduler"  \
           --project=config/project.xml --resources=config/resources.xml \
           --classpath=/root/smartcity-compss/dataclay/dataclay.jar \
