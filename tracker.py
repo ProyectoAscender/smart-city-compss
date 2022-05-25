@@ -21,7 +21,7 @@ from geopandas import GeoDataFrame
 from shapely import geometry
 import numpy as np
 
-NUM_ITERS = 300
+NUM_ITERS = 2
 NUM_ITERS_POLLUTION = 25
 SNAP_PER_FEDERATION = 15
 N = 5
@@ -67,7 +67,10 @@ def getRoi(roi_path):
 
 @task(returns=3, list_boxes=IN, trackers=IN, cur_index=IN, init_point=IN)
 def execute_tracking(list_boxes, trackers, cur_index, init_point):
-    return track.track2(list_boxes, trackers, cur_index, init_point)
+    print('EXECUTING TRACKING')
+    a, b, c = track.track2(list_boxes, trackers, cur_index, init_point)
+    print('FINISHING TRACKING')
+    return a, b, c
 
 
 @task(returns=7,)
@@ -560,6 +563,7 @@ def execute_trackers(socket_ips, with_dataclay, kb):
         # readScenarioState: trafficLights, tram NGAP
         areaState = getResistenzaStatus(kb)
 
+
         for index, socket_ip in enumerate(socket_ips):
             cam_ids[index], timestamps[index], list_boxes, reception_dummies[index], box_coords[index], init_point, frames[index] = \
                                 receive_boxes(socket_ip, reception_dummies[index])
@@ -594,7 +598,7 @@ def execute_trackers(socket_ips, with_dataclay, kb):
         #     # compss_barrier()
         #     # delete objects based on timestamps
         #     foo = remove_objects_from_dataclay(kb, foo)
-
+    print('last barrier')
     compss_barrier()
     end_time = time.time()
     print("Exec Inner Time: " + str(end_time - start_time))

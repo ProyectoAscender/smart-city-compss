@@ -5,7 +5,8 @@ FROM ubuntu:18.04
 WORKDIR /root
 LABEL maintainer="Unai Perez <unai.perez@bsc.es>"
 
-ENV JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
+ENV JAVA_HOME=/usr/lib/jvm/java-8-openjdk-arm64
+
 
 COPY --from=builder /opt/COMPSs /opt/COMPSs
 COPY --from=builder /etc/profile.d/compss.sh /etc/profile.d/compss.sh
@@ -15,7 +16,7 @@ RUN apt update && \
     apt install -y openjdk-8-jre-headless uuid-runtime && \
     echo ". /etc/profile.d/compss.sh" >> /root/.bashrc
 
-RUN apt install -qq -y openjdk-8-jre-headless openssh-server openssh-client uuid-runtime python3 python3-pip python3-setuptools libgmp3-dev flex bison libbison-dev texinfo libffi-dev libxml2 gfortran libpapi-dev papi-tools
+RUN apt install -qq -y openjdk-8-jre-headless openjdk-8-jdk openssh-server openssh-client uuid-runtime python3 python3-pip python3-setuptools libgmp3-dev flex bison libbison-dev texinfo libffi-dev libxml2 gfortran libpapi-dev papi-tools nano vim
                             
 # SSH
 RUN apt install -qq -y openssh-server openssh-client && \
@@ -74,11 +75,8 @@ RUN apt install -y libeigen3-dev python3-matplotlib python-dev libgdal-dev libce
 # Compss obstacle detection dependencies
 RUN python3 -m pip install geolib dataclay pymap3d zmq requests pygeohash paho-mqtt pandas shapely geopandas
 
-RUN echo "dummy2222"
-RUN apt install -qq -y openjdk-8-jdk
 # Compss obstacle detection
-RUN git clone https://gitlab.bsc.es/ppc-bsc/software/smartcity-compss.git
-
+RUN echo "dummy11122211111"
 # Tracker class project
 RUN git clone https://gitlab.bsc.es/ppc-bsc/software/tracker.git -b dev && \
     cd tracker && \
@@ -88,6 +86,16 @@ RUN git clone https://gitlab.bsc.es/ppc-bsc/software/tracker.git -b dev && \
     cmake .. -DWITH_MATPLOTLIB=OFF && \
     make -j8
 
+RUN git clone https://gitlab.bsc.es/ppc-bsc/software/smartcity-compss.git
+# # Tracker class project
+# RUN git clone https://github.com/class-euproject/tracker_CLASS.git -b bsc && \
+#     cd tracker_CLASS && \
+#     git submodule update --init --recursive && \
+#     mkdir build  && \
+#     cd build && \
+#     cmake .. -DWITH_MATPLOTLIB=OFF && \
+#     make -j8
+
 RUN cp /root/tracker/build/track.cpython-36m-aarch64-linux-gnu.so smartcity-compss/lib
 #RUN cp /root/deduplicator/build/deduplicator.cpython-36m-aarch64-linux-gnu.so smartcity-compss/lib
     # cp /root/deduplicator/build/deduplicator.cpython-36m-x86_64-linux-gnu.so . && \
@@ -95,7 +103,6 @@ RUN cp /root/tracker/build/track.cpython-36m-aarch64-linux-gnu.so smartcity-comp
 # Copy dataclay.jar from dataclay image
 #TODO: use env variable for version
 COPY --from=bscdataclay/logicmodule:dev20210603-alpine /home/dataclayusr/dataclay/dataclay.jar /root/smartcity-compss/dataclay/dataclay.jar
-ENV JAVA_HOME=/usr/lib/jvm/java-8-openjdk-arm64
 
 # Establishing entrypoint for downloading the stubs and making the image ready at runtime
 WORKDIR /root/smartcity-compss
