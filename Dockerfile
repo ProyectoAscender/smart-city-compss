@@ -16,7 +16,7 @@ RUN apt update && \
     apt install -y openjdk-8-jre-headless uuid-runtime && \
     echo ". /etc/profile.d/compss.sh" >> /root/.bashrc
 
-RUN apt install -qq -y openjdk-8-jre-headless openjdk-8-jdk openssh-server openssh-client uuid-runtime python3 python3-pip python3-setuptools libgmp3-dev flex bison libbison-dev texinfo libffi-dev libxml2 gfortran libpapi-dev papi-tools nano vim
+RUN apt install -qq -y openjdk-8-jre-headless openjdk-8-jdk openssh-server openssh-client uuid-runtime python3 python3-pip python3-setuptools libgmp3-dev flex bison libbison-dev texinfo libffi-dev libxml2 gfortran libpapi-dev papi-tools nano vim rsync
                             
 # SSH
 RUN apt install -qq -y openssh-server openssh-client && \

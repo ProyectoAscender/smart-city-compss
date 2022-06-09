@@ -15,13 +15,18 @@ from lib import track
 import socket
 import os
 import json
+import re 
+
+from os import listdir
+from os.path import isfile, join
+
 
 import pandas as pd
 from geopandas import GeoDataFrame
 from shapely import geometry
 import numpy as np
 
-NUM_ITERS = 2
+NUM_ITERS = 7500
 NUM_ITERS_POLLUTION = 25
 SNAP_PER_FEDERATION = 15
 N = 5
@@ -67,9 +72,7 @@ def getRoi(roi_path):
 
 @task(returns=3, list_boxes=IN, trackers=IN, cur_index=IN, init_point=IN)
 def execute_tracking(list_boxes, trackers, cur_index, init_point):
-    print('EXECUTING TRACKING')
     a, b, c = track.track2(list_boxes, trackers, cur_index, init_point)
-    print('FINISHING TRACKING')
     return a, b, c
 
 
@@ -114,7 +117,7 @@ def receive_boxes(socket_ip, dummy):
                                                                                         + double_size * 2])
             #   // box_vector: x,y,w,h (resized)
             #     // coords: north,east (convertToMeters (unresized)) 
-            #     // boxCoords: 4 esquinas coordenadas (convertedToGeo (unresized))
+            #     // bo0xCoords: 4 esquinas coordenadas (convertedToGeo (unresized))
             #     // corrdsGeo: NO se usa
             #     collectBoxInfo(cam->detNN->batchDetected, box_vector, coords, coordsGeo, boxCoords, scale_x, scale_y, *cam);
             #     unsigned int size;
@@ -156,40 +159,50 @@ def deduplicate(trackers_list, cam_ids, foo_dedu, frames):
 
 @task(returns = 1, kb = IN)
 def getResistenzaStatus(kb):
+    
     if (kb.traffic_lights[(11.1831603045325, 43.75873372968)].status == 'Red'):
-        vehLights = {'04': False, '05': False} # RED
+        vehLights = {'G3': False} # RED
     else:
-        vehLights = {'04': True, '05': True} # GREEN, YELLOW
+        vehLights = {'G3': True} # GREEN, YELLOW
     
     if (kb.traffic_lights[(11.1828671784974, 43.758755396189)].status == 'Red'):
-        pedLights = {'04': False, '05': False} # RED
+        pedLights = {'G1': False} # RED
     else:
-        pedLights = {'04': True, '05': True} # GREEN, YELLOW
-    return {'pedLights': pedLights, 'vehLights': vehLights, 'tramApproach':kb.tram_in_station}
+        pedLights = {'G1': True} # GREEN, YELLOW
 
-def getResistenzaStatus2(current_frame, id_cam):
-   
+    if (kb.traffic_lights[(11.1829760293935, 43.7588197766266)].status == 'Red'):
+        pedLights.update({'G2': False})  # RED
+    else:
+        pedLights.update({'G2': True}) # GREEN, YELLOW
 
-    filename = './' + str(id_cam) + '_' + str(NUM_ITERS) + '_states.in'
-    df = pd.read_csv(filename, names = ['id_cam','frame','pedLights04','pedLights05','vehLights04''vehLights05','tramApproach'])
+
+    return {'pedLights': pedLights, 'vehLights': vehLights, 'tramApproach':True}
+
+
+def getResistenzaStatus2(current_frame):
+    # filename = './' + str(id_cam) + '_' + str(NUM_ITERS) + '_states.in'
+    filename = './status.log'
+
+    df = pd.read_csv(filename, names = ['id_cam','frame','pedLightG1','pedLightG2','vehLightG3','tramState'])
     q = df.loc[df.frame == current_frame]
-    vehLights = {'04': q['vehLights04'], '05': q['vehLights05']}     
-    pedLights = {'04': q['pedLights04'], '05': q['pedLights05']} # RED
-
-
-    return {'pedLights': pedLights, 'vehLights': vehLights, 'tramApproach':kb.tram_in_station}
+    vehLights = {'G3': q['vehLightG3'].values}     
+    pedLights = {'G1': q['pedLightG1'].values, 'G2': q['pedLightG2'].values} # RED
+    return {'pedLights': pedLights, 'vehLights': vehLights, 'tramApproach':q['tramState'].values[0]}
 
 @task(returns=1,id_cam=IN, timestamp = IN, info_for_deduplicator=IN,polys=IN, kb=IN, areaState=IN)
 def semantic_analysis(id_cam,timestamp, info_for_deduplicator, polys, kb, areaState):
     # Alert list will contains binary alert value for inserting into csv
     from CityNS.classes import Alert
     alertList = []    
+    alertInfo = []
     alarmTime = 10000
     area = 'resistenza'
     carQueueLength = 0
     alertQueueFlag = False
+    # All polys are passed to all cameras in dictionary. Here we select the correct one
+    polys = polys[str(id_cam)]
 
-    
+
 
     # Inspect if every box is in a polygon
     for i, box in enumerate(info_for_deduplicator):
@@ -202,6 +215,7 @@ def semantic_analysis(id_cam,timestamp, info_for_deduplicator, polys, kb, areaSt
         pixel_w = box[8]  # OR list_boxes[tracker.idx].x  # pixels[tracker.idx][0]
         pixel_h = box[9]
         alertList.append(0)
+        alertInfo.append([0, 0, 0, 0, 0])
         alertFlag = False
 
 
@@ -210,11 +224,12 @@ def semantic_analysis(id_cam,timestamp, info_for_deduplicator, polys, kb, areaSt
                 inOut = pol.contains(geometry.Point(pixel_x + pixel_w/2, pixel_y + pixel_h))
                 if (inOut):                 
                 # Pedestrians in tramway when tram is nearby
-                    if(polys['pedPolys'].loc[j,'class'] in ['tramway', 'railcross']):#and kb.tram_in_station):
+                    if(polys['pedPolys'].loc[j,'class'] in ['tramway', 'railcross'] and areaState['tramApproach']):#and kb.tram_in_station):
                         alert_category , severity  = 'pedestrianOnRoad' , 'critical'
                         description = 'Pedestrians in tramway when tram is nearby'
                         alertFlag = True
                         alertList[-1] = 1
+                        alertInfo[-1] = [1, alert_category, severity, description, str(id_cam) + '_' + str(trackId)]
 
                 # Pedestrians in car path               
                     elif(polys['pedPolys'].loc[j,'class'] == 'road'):
@@ -222,14 +237,18 @@ def semantic_analysis(id_cam,timestamp, info_for_deduplicator, polys, kb, areaSt
                         description =  'Pedestrians in car path '
                         alertFlag = True
                         alertList[-1] = 2
+                        alertInfo[-1] = [2, alert_category, severity, description, str(id_cam) + '_' + str(trackId)]
+
 
                 # Pedestrians crossing cross
                     elif(polys['pedPolys'].loc[j,'class'] == 'pedCross'):
-                        if not areaState['pedLights']['0' + str(polys['pedPolys'].loc[j,'trafficLight'])]: # and traffic light is red
+                        if not areaState['pedLights'][str(polys['pedPolys'].loc[j,'trafficLight'])]: # and traffic light is red
                             alert_category , severity  = 'pedestrianOnRoad' , 'high' 
                             description =  'Pedestrian crossing with red traffic ligh (5 or 4)'
                             alertFlag = True
-                        alertList[-1] = 3
+                            alertList[-1] = 3
+                            alertInfo[-1] = [3, alert_category, severity, description, str(id_cam) + '_' + str(trackId)]
+
                     else:
                         alertFlag = False
 
@@ -240,22 +259,23 @@ def semantic_analysis(id_cam,timestamp, info_for_deduplicator, polys, kb, areaSt
                 if (inOut):
                 # Car in railcross with red light when tram is nearby
                     if(polys['vehPolys'].loc[j,'class'] == 'railcross'): #and kb.tram_in_station):
-                        if not areaState['vehLights']['0' + str(polys['vehPolys'].loc[j,'trafficLight'])]: 
+                        if (not areaState['vehLights'][str(polys['vehPolys'].loc[j,'trafficLight'])] and  areaState['tramApproach']): 
                             alert_category , severity  = 'hazardOnRoad' , 'critical'
-                            description =  'Car in railcross when tram is nearby and light '
+                            description =  'Vehicle in railcross when tram is nearby and light is red'
                             alertFlag = True
                             alertList[-1] = 4
-                        
-                    # Cars approach
-                    elif(polys['vehPolys'].loc[j,'class'] == 'queue'):
-                        carQueueLength += 1
-                        # Cars approach towards railway but red light   
-                        if ((not areaState['vehLights']['0' + str(polys['vehPolys'].loc[j,'trafficLight'])]) and carQueueLength > 2):        
-                            alert_category , severity  = 'trafficJam', 'informational'
-                            description =  '3 or more Cars approaching with redlight '
-                            alertQueueFlag = True
-                            data = carQueueLength
-                            alertList[-1] = 5
+                            alertInfo[-1] = [4, alert_category, severity, description, str(id_cam) + '_' + str(trackId)]
+
+                    # Cars stopping late
+                    elif(polys['vehPolys'].loc[j,'class'] == 'afterStop'):
+                         if not areaState['vehLights'][str(polys['vehPolys'].loc[j,'trafficLight'])]: # and traffic light is red
+                            alert_category , severity  = 'hazardOnRoad', 'critical'
+                            description =  'Vehicle between stop and railway with red light'
+                            alertFlag = True
+                            alertList[-1] = 6
+                            alertInfo[-1] = [6, alert_category, severity, description, str(id_cam) + '_' + str(trackId)]
+
+
                         # if areaState['vehLights']['0' + str(polys['vehPolys'].loc[j,'trafficLight'])]:#and kb.tram_in_station):
                         #     alert_category , severity  = 'trafficJam', 'informational'
                         #     description =  'Cars approaching but green light '
@@ -263,12 +283,25 @@ def semantic_analysis(id_cam,timestamp, info_for_deduplicator, polys, kb, areaSt
                         #     data = carQueueLength
                     else:
                         alertFlag = False
+
+                    # Cars approach
+                    if(polys['vehPolys'].loc[j,'class'] == 'queue'):
+                        carQueueLength += 1
+                        # Cars approach towards railway but red light   
+                        if (carQueueLength > 2):        
+                            alert_category , severity  = 'trafficJam', 'informational'
+                            description =  'Vehicle queue of length ' + str(carQueueLength)
+                            alertQueueFlag = True
+                            data = carQueueLength
+                            alertList[-1] = 5
+                            alertInfo[-1] = [5, alert_category, severity, description, str(id_cam) + '_' + str(trackId)]
+
         # Any alertFlag send Alert.
         if (alertFlag):
             print(f'**ALERT: cam id:{id_cam}'\
                   f' -- {area} {severity} {description}'\
                   f' -- {info_for_deduplicator[i][0]}, {info_for_deduplicator[i][1]} | timeLapse = {alarmTime}')                          
-            alert = Alert(  id = str(id_cam) + str(trackId), 
+            alert = Alert(  id = str(id_cam) + '_' + str(trackId), 
                             source = id_cam,
                             alert_category = alert_category, 
                             severity= severity, 
@@ -301,7 +334,7 @@ def semantic_analysis(id_cam,timestamp, info_for_deduplicator, polys, kb, areaSt
             alert.make_persistent()
             alert.send_to_mqtt()   
 
-    return alertList
+    return alertList,alertInfo
 
 
 
@@ -312,6 +345,7 @@ def semantic_analysis(id_cam,timestamp, info_for_deduplicator, polys, kb, areaSt
 def dump_deduplicated(info_deduplicated, iteration):
     import pygeohash as pgh
     import os
+
     filename = "20936-20937.in"
     if not os.path.exists(filename):
         f = open(filename, "w+")
@@ -337,27 +371,38 @@ def dump_deduplicated(info_deduplicated, iteration):
             f.write(f"{id_cam} {iteration} {ts} {cl} {lat} {lon} {geohash} {speed} {yaw} {id_cam}_{trackId} {pixel_x} {pixel_y} {pixel_w} {pixel_h}\n")
 
 @task(id_cam=IN, frame = IN, areaState = IN)
-def dump_state(id_cam, frame, areaState):
+def dump_state(id_cam, frame, areaState,initTime):
 
     import os
-    filename = './' + str(id_cam) + '_' + str(NUM_ITERS) + '_states.in'
+    filename = './' + str(id_cam) + '_' + initTime + '_' + str(NUM_ITERS) + '_states.in'
     if not os.path.exists(filename):
         f = open(filename, "w+")
         f.close()
     with open(filename, "a+") as f:
 
-        f.write(f"{id_cam} {frame} {int(areaState['pedLights']['04'])} {int(areaState['pedLights']['05'])} {int(areaState['vehLights']['04'])} {int(areaState['vehLights']['05'])} {int(areaState['tramApproach'])}\n")
-   
+        f.write(f"{id_cam} {frame} {int(areaState['pedLights']['G1'])} {int(areaState['pedLights']['G2'])} {int(areaState['vehLights']['G3'])} {int(areaState['tramApproach'])}\n")
 
 
+@task(id_cam=IN, frame = IN, areaState = IN)
+def dump_alerts(id_cam, frame, alertInfo,initTime):
+
+    import os
+    filename = './' + str(id_cam) + '_' + initTime + '_' +  str(NUM_ITERS) + '_alarm.in'
+    if not os.path.exists(filename):
+        f = open(filename, "w+")
+        f.close()
+    for i in range(len(alertInfo)):
+        with open(filename, "a+") as f:
+            # alertInfo -> [alert type, alert_category, severity, description, alertId]
+            f.write(f"{frame}; {int(alertInfo[i][0])};{alertInfo[i][1]}; {alertInfo[i][2]};{alertInfo[i][3]};{alertInfo[i][4]}\n")
 
 
 
 @task(id_cam=IN, ts = IN, iteration = IN, info_for_deduplicator=IN,alertList = IN)
-def dump(id_cam, ts, iteration, info_for_deduplicator, alertList):
+def dump(id_cam, ts, iteration, info_for_deduplicator, alertList, initTime):
     import pygeohash as pgh
     import os
-    filename = './' + str(id_cam) + '_' + str(NUM_ITERS) + '.in'
+    filename = './' + str(id_cam) + '_' + initTime + '_' +  str(NUM_ITERS) + '.in'
     if not os.path.exists(filename):
         f = open(filename, "w+")
         f.close()
@@ -541,11 +586,22 @@ def execute_trackers(socket_ips, with_dataclay, kb):
     deduplicated_trackers_list = []  # TODO: accumulate trackers
     box_coords = [0] * len(socket_ips)
     frames = [0] * len(socket_ips)
+    polys = [0] *  len(socket_ips)
 
-    # Get gdf roi polygons 
-    gdfPolys = getRoi(roi_file_path + 'resistenza-01.csv')         
-    polys = {'vehPolys': gdfPolys[gdfPolys['class'].isin(["queue", "road", "railcross"])].reset_index(drop=True),
-                'pedPolys': gdfPolys.reset_index(drop=True)}
+    # Get camera-edge id existing in roi files names
+    allCameraRoiPaths = [f for f in listdir(roi_file_path) if isfile(join(roi_file_path, f))]
+    roiFileNames = [s for s in allCameraRoiPaths if re.findall("\-(.*?)\-.*.csv",s)]
+    
+    polys = {}
+    # Get gdf roi polygons for each camera, and append with key to same dictionay.
+    # This cannot be append to list with arbitrary order, could not be same order as receive boxes
+    for i, roiFileName in enumerate(roiFileNames):
+        cameraEdgeId = re.findall("\-(.*?)\-.*.csv", roiFileName)[0]
+        gdfPolys = getRoi(roi_file_path + roiFileName)  
+
+        polys.update({cameraEdgeId : {'vehPolys': gdfPolys[gdfPolys['class'].isin(["queue", "road", "railcross", "afterStop"])].reset_index(drop=True),
+                                    'pedPolys': gdfPolys[gdfPolys['class'].isin(["road", "pedCross", "railcross", "pedTramCross", "tramway"])].reset_index(drop=True)}
+        })
 
     # Initialize state of trafficlights and NGAP tramway
 
@@ -556,6 +612,8 @@ def execute_trackers(socket_ips, with_dataclay, kb):
     i = 0
     reception_dummies = [0] * len(socket_ips)
     start_time = time.time()
+    initTime = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+
     foo_dedu = foo = None
     while i < NUM_ITERS:
         print(i)
@@ -572,10 +630,12 @@ def execute_trackers(socket_ips, with_dataclay, kb):
                                                                                                     cur_index[index],
                                                                                                      init_point)
 
+            # areaState = getResistenzaStatus2(frames[index])
         # info_deduplicated, foo_dedu = deduplicate(info_for_deduplicator, cam_ids, foo_dedu, frames)
-            alertsList = semantic_analysis(cam_ids[index], timestamps[index], info_for_deduplicator[index] , polys, kb, areaState)
-            dump(cam_ids[index], timestamps[index], frames[index], info_for_deduplicator[index], alertsList)
-            dump_state(cam_ids[index],frames[index], areaState)
+            alertsList,alertInfo = semantic_analysis(cam_ids[index], timestamps[index], info_for_deduplicator[index] , polys, kb, areaState)
+            dump(cam_ids[index], timestamps[index], frames[index], info_for_deduplicator[index], alertsList,initTime)
+            dump_state(cam_ids[index],frames[index], areaState,initTime)
+            dump_alerts(cam_ids[index],frames[index], alertInfo, initTime)
         # dump_deduplicated(info_deduplicated, i)  # or frames appended inside info_for_dedu in tracking
         """# TODO: accumulate trackers
         if i != 0 and (i+1) % N == 0:
@@ -639,7 +699,7 @@ def main():
         #     init_task()
     compss_barrier()
     print(f"Init task completed {datetime.now()}")
-    input("Press enter to continue...")
+    #input("Press enter to continue...")
 
     if (args.with_dataclay):
         #Dataclay KB generation

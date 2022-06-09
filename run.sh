@@ -1,2 +1,7 @@
 #!/bin/bash
-docker run -it --name smartcity02   -p 8887:8887 -p 43001:43001 -p 43002:43002 --net bridge --gpus all -v ~/smartcity-compss:/root/smartcity-compss -v /root/smartcity-compss/lib -v /root/smartcity-compss/dataclay -v ~/data:/root/data  registry.gitlab.bsc.es/ppc-bsc/software/smartcity-compss/smartcity-compss:2.7-nfr2-3.6 master /bin/bash
+SECONDS=0 && \
+nohup python3 tracker.py 10.50.100.2:8887 10.50.100.2:8886 --with_dataclay > ./program.log 2>&1 & \
+bg_pid=$! && \
+echo "one $!" && \
+wait $bg_pid && echo "waiting job seconds: $SECONDS" && \
+rsync -uazPt *.in ~/data/florencia/resistenza/logs
