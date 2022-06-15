@@ -241,10 +241,10 @@ def semantic_analysis(id_cam,timestamp, info_for_deduplicator, polys, kb, areaSt
 
 
                 # Pedestrians crossing cross
-                    elif(polys['pedPolys'].loc[j,'class'] == 'pedCross'):
+                    elif(polys['pedPolys'].loc[j,'class'] in ['pedCross', 'pedTramCross']):
                         if not areaState['pedLights'][str(polys['pedPolys'].loc[j,'trafficLight'])]: # and traffic light is red
                             alert_category , severity  = 'pedestrianOnRoad' , 'high' 
-                            description =  'Pedestrian crossing with red traffic ligh (5 or 4)'
+                            description =  'Pedestrian crossing with red traffic light'
                             alertFlag = True
                             alertList[-1] = 3
                             alertInfo[-1] = [3, alert_category, severity, description, str(id_cam) + '_' + str(trackId)]
@@ -293,8 +293,6 @@ def semantic_analysis(id_cam,timestamp, info_for_deduplicator, polys, kb, areaSt
                             description =  'Vehicle queue of length ' + str(carQueueLength)
                             alertQueueFlag = True
                             data = carQueueLength
-                            alertList[-1] = 5
-                            alertInfo[-1] = [5, alert_category, severity, description, str(id_cam) + '_' + str(trackId)]
 
         # Any alertFlag send Alert.
         if (alertFlag):
@@ -332,7 +330,10 @@ def semantic_analysis(id_cam,timestamp, info_for_deduplicator, polys, kb, areaSt
                             valid_from = datetime.utcfromtimestamp(timestamp / 1000),
                             valid_to = datetime.utcfromtimestamp((timestamp + alarmTime) / 1000))
             alert.make_persistent()
-            alert.send_to_mqtt()   
+            alert.send_to_mqtt() 
+            alert.send_to_kafka("dataclay", "resistenza")  
+            alertList[-1] = 5
+            alertInfo[-1] = [5, alert_category, severity, description, str(id_cam) + '_' + str(trackId)]
 
     return alertList,alertInfo
 
