@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <ResourcesList>
-<ComputeNode Name="192.168.121.248">
+<ComputeNode Name="192.168.121.183">
         <Processor Name="MainProcessor">
             <ComputingUnits>4</ComputingUnits>
         </Processor>
@@ -20,7 +20,7 @@
                         </Property>
                         <Property>
                                 <Name>ImageName</Name>
-                                <Value>bscppc/smartcity-compss:2.7-nfr2-3.6</Value>
+                                <Value>bscppc/smartcity-compss:2.10-3.6</Value>
             </Property>
             <Property>
                                 <Name>PullIfNeeded</Name>

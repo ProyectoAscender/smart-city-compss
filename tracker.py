@@ -26,7 +26,7 @@ from geopandas import GeoDataFrame
 from shapely import geometry
 import numpy as np
 
-NUM_ITERS = 7500
+NUM_ITERS = 2000000
 NUM_ITERS_POLLUTION = 25
 SNAP_PER_FEDERATION = 15
 N = 5
@@ -34,7 +34,7 @@ NUM_ITERS_FOR_CLEANING = 10000
 CD_PROC = 0
 
 pollution_file_name = "pollution.csv"
-roi_file_path = "/root/data/florencia/resistenza/roi/"
+roi_file_path = "/root/data/florencia/batoni/roi/"
 #roi_path = os.path.realpath(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'data', 'mydata.json'))
 
 def getRoi(roi_path):
@@ -175,7 +175,49 @@ def getResistenzaStatus(kb):
     else:
         pedLights.update({'G2': True}) # GREEN, YELLOW
 
+def getBatoniStatus(kb):
+    if (kb.traffic_lights[(11.2207382614911, 43.7742463147471)].status == 'Red'):
+        pedLights = {'G1': False} # RED
+    else:
+        pedLights = {'G1': True} # GREEN, YELLOW
 
+    if (kb.traffic_lights[(11.2206499502015, 43.7738802024861)].status == 'Red'):
+        vehLights = {'G2': False} # RED
+    else:
+        vehLights = {'G2': True} # GREEN, YELLOW
+
+    if (kb.traffic_lights[(11.2207907492102, 43.7742967899821)].status == 'Red'):
+        vehLights.update({'G3': False}) # RED
+    else:
+        vehLights.update({'G3': True}) # GREEN, YELLOW
+
+    if (kb.traffic_lights[(11.220725796009, 43.7740533935107)].status == 'Red'):
+        vehLights.update({'G4': False}) # RED
+    else:
+        vehLights.update({'G4': True}) # GREEN, YELLOW
+
+    if (kb.traffic_lights[(11.2207265880488, 43.773954106717)].status == 'Red'):
+        pedLights.update({'G5': False}) # RED
+    else:
+        pedLights.update({'G5': True}) # GREEN, YELLOW
+
+    if (kb.traffic_lights[(11.220785713538,43.7739671264712)].status == 'Red'):
+        pedLights.update({'G6': False})  # RED
+    else:
+        pedLights.update({'G6': True}) # GREEN, YELLOW
+
+    if (kb.traffic_lights[(11.2209194201504, 43.7740884279256)].status == 'Red'):
+        pedLights.update({'G7': False})  # RED
+    else:
+        pedLights.update({'G7': True}) # GREEN, YELLOW
+    # pedLights = {'G1': False} 
+    # vehLights = {'G2': True}
+    # vehLights.update({'G3': True})
+    # vehLights.update({'G4': True})
+    # pedLights.update({'G5': False})
+    # pedLights.update({'G6': False})
+    # pedLights.update({'G7': False})
+    # print({'pedLights': pedLights, 'vehLights': vehLights, 'tramApproach':True})
     return {'pedLights': pedLights, 'vehLights': vehLights, 'tramApproach':True}
 
 
@@ -196,7 +238,7 @@ def semantic_analysis(id_cam,timestamp, info_for_deduplicator, polys, kb, areaSt
     alertList = []    
     alertInfo = []
     alarmTime = 10000
-    area = 'resistenza'
+    area = 'batoni'
     carQueueLength = 0
     alertQueueFlag = False
     # All polys are passed to all cameras in dictionary. Here we select the correct one
@@ -293,13 +335,15 @@ def semantic_analysis(id_cam,timestamp, info_for_deduplicator, polys, kb, areaSt
                             description =  'Vehicle queue of length ' + str(carQueueLength)
                             alertQueueFlag = True
                             data = carQueueLength
+                            alertList[-1] = 5
+                            alertInfo[-1] = [5, alert_category, severity, description, str(id_cam) + '_' + str(trackId)]
 
         # Any alertFlag send Alert.
         if (alertFlag):
             print(f'**ALERT: cam id:{id_cam}'\
                   f' -- {area} {severity} {description}'\
                   f' -- {info_for_deduplicator[i][0]}, {info_for_deduplicator[i][1]} | timeLapse = {alarmTime}')                          
-            alert = Alert(  id = str(id_cam) + '_' + str(trackId), 
+            alert = Alert(  id = str(id_cam) + '_' +  str(trackId), 
                             source = id_cam,
                             alert_category = alert_category, 
                             severity= severity, 
@@ -311,7 +355,8 @@ def semantic_analysis(id_cam,timestamp, info_for_deduplicator, polys, kb, areaSt
                             valid_from = datetime.utcfromtimestamp(timestamp / 1000),
                             valid_to = datetime.utcfromtimestamp((timestamp + alarmTime) / 1000))
             alert.make_persistent()
-            alert.send_to_mqtt()    
+            alert.send_to_mqtt()
+            alert.send_to_kafka("dataclay", "batoni")     
     # AlertQueueFlag only triggers Alarm  when all the boxes has been computed
     if (alertQueueFlag):
             print(f'**ALERT: cam id: trafficJam_ {str(data)}'\
@@ -331,9 +376,8 @@ def semantic_analysis(id_cam,timestamp, info_for_deduplicator, polys, kb, areaSt
                             valid_to = datetime.utcfromtimestamp((timestamp + alarmTime) / 1000))
             alert.make_persistent()
             alert.send_to_mqtt() 
-            alert.send_to_kafka("dataclay", "resistenza")  
-            alertList[-1] = 5
-            alertInfo[-1] = [5, alert_category, severity, description, str(id_cam) + '_' + str(trackId)]
+            alert.send_to_kafka("dataclay", "batoni")  
+
 
     return alertList,alertInfo
 
@@ -380,8 +424,7 @@ def dump_state(id_cam, frame, areaState,initTime):
         f = open(filename, "w+")
         f.close()
     with open(filename, "a+") as f:
-
-        f.write(f"{id_cam} {frame} {int(areaState['pedLights']['G1'])} {int(areaState['pedLights']['G2'])} {int(areaState['vehLights']['G3'])} {int(areaState['tramApproach'])}\n")
+        f.write(f"{id_cam} {frame} {int(areaState['pedLights']['G1'])} {int(areaState['vehLights']['G2'])} {int(areaState['vehLights']['G3'])} {int(areaState['vehLights']['G4'])} {int(areaState['pedLights']['G5'])} {int(areaState['pedLights']['G6'])} {int(areaState['pedLights']['G7'])} {int(areaState['tramApproach'])}\n")
 
 
 @task(id_cam=IN, frame = IN, areaState = IN)
@@ -620,8 +663,8 @@ def execute_trackers(socket_ips, with_dataclay, kb):
         print(i)
 
         # readScenarioState: trafficLights, tram NGAP
-        areaState = getResistenzaStatus(kb)
-
+        areaState = getBatoniStatus(kb)
+        # print(areaState)
 
         for index, socket_ip in enumerate(socket_ips):
             cam_ids[index], timestamps[index], list_boxes, reception_dummies[index], box_coords[index], init_point, frames[index] = \
