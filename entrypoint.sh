@@ -12,7 +12,7 @@ shift 1
 else
 echo ".. deploying worker"
 MASTER_USER="flo01"
-LOGICMODULE_HOST="192.168.121.248"
+LOGICMODULE_HOST="192.168.121.183"
 PATH_TO_STUBS_MASTER="/home/flo01/smartcity-compss/stubs/"
 whoami
 scp -r ${MASTER_USER}@${LOGICMODULE_HOST}:${PATH_TO_STUBS_MASTER} .
