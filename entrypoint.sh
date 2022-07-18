@@ -5,8 +5,8 @@ echo Your container args are: "$@"
 
 # If this image is a worker
 # if [[ "$1" == "master" ]]; then
-python3 entrypoint.py
-echo "..deploying master"
+# python3 entrypoint.py
+# echo "..deploying master"
 # shift 1
 # # If this image is master
 # else
