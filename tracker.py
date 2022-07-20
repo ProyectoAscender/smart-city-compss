@@ -3,8 +3,8 @@ from pycompss.api.task import task
 from pycompss.api.api import compss_barrier, compss_wait_on
 from pycompss.api.constraint import constraint
 
-from dataclay.api import init, finish
-from dataclay.exceptions.exceptions import DataClayException
+# from dataclay.api import init, finish
+# from dataclay.exceptions.exceptions import DataClayException
 
 from datetime import datetime
 from socket import timeout
@@ -176,47 +176,47 @@ def getResistenzaStatus(kb):
         pedLights.update({'G2': True}) # GREEN, YELLOW
 
 def getBatoniStatus(kb):
-    if (kb.traffic_lights[(11.2207382614911, 43.7742463147471)].status == 'Red'):
-        pedLights = {'G1': False} # RED
-    else:
-        pedLights = {'G1': True} # GREEN, YELLOW
+    # if (kb.traffic_lights[(11.2207382614911, 43.7742463147471)].status == 'Red'):
+    #     pedLights = {'G1': False} # RED
+    # else:
+    #     pedLights = {'G1': True} # GREEN, YELLOW
 
-    if (kb.traffic_lights[(11.2206499502015, 43.7738802024861)].status == 'Red'):
-        vehLights = {'G2': False} # RED
-    else:
-        vehLights = {'G2': True} # GREEN, YELLOW
+    # if (kb.traffic_lights[(11.2206499502015, 43.7738802024861)].status == 'Red'):
+    #     vehLights = {'G2': False} # RED
+    # else:
+    #     vehLights = {'G2': True} # GREEN, YELLOW
 
-    if (kb.traffic_lights[(11.2207907492102, 43.7742967899821)].status == 'Red'):
-        vehLights.update({'G3': False}) # RED
-    else:
-        vehLights.update({'G3': True}) # GREEN, YELLOW
+    # if (kb.traffic_lights[(11.2207907492102, 43.7742967899821)].status == 'Red'):
+    #     vehLights.update({'G3': False}) # RED
+    # else:
+    #     vehLights.update({'G3': True}) # GREEN, YELLOW
 
-    if (kb.traffic_lights[(11.220725796009, 43.7740533935107)].status == 'Red'):
-        vehLights.update({'G4': False}) # RED
-    else:
-        vehLights.update({'G4': True}) # GREEN, YELLOW
+    # if (kb.traffic_lights[(11.220725796009, 43.7740533935107)].status == 'Red'):
+    #     vehLights.update({'G4': False}) # RED
+    # else:
+    #     vehLights.update({'G4': True}) # GREEN, YELLOW
 
-    if (kb.traffic_lights[(11.2207265880488, 43.773954106717)].status == 'Red'):
-        pedLights.update({'G5': False}) # RED
-    else:
-        pedLights.update({'G5': True}) # GREEN, YELLOW
+    # if (kb.traffic_lights[(11.2207265880488, 43.773954106717)].status == 'Red'):
+    #     pedLights.update({'G5': False}) # RED
+    # else:
+    #     pedLights.update({'G5': True}) # GREEN, YELLOW
 
-    if (kb.traffic_lights[(11.220785713538,43.7739671264712)].status == 'Red'):
-        pedLights.update({'G6': False})  # RED
-    else:
-        pedLights.update({'G6': True}) # GREEN, YELLOW
+    # if (kb.traffic_lights[(11.220785713538,43.7739671264712)].status == 'Red'):
+    #     pedLights.update({'G6': False})  # RED
+    # else:
+    #     pedLights.update({'G6': True}) # GREEN, YELLOW
 
-    if (kb.traffic_lights[(11.2209194201504, 43.7740884279256)].status == 'Red'):
-        pedLights.update({'G7': False})  # RED
-    else:
-        pedLights.update({'G7': True}) # GREEN, YELLOW
-    # pedLights = {'G1': False} 
-    # vehLights = {'G2': True}
-    # vehLights.update({'G3': True})
-    # vehLights.update({'G4': True})
-    # pedLights.update({'G5': False})
-    # pedLights.update({'G6': False})
-    # pedLights.update({'G7': False})
+    # if (kb.traffic_lights[(11.2209194201504, 43.7740884279256)].status == 'Red'):
+    #     pedLights.update({'G7': False})  # RED
+    # else:
+    #     pedLights.update({'G7': True}) # GREEN, YELLOW
+    pedLights = {'G1': False} 
+    vehLights = {'G2': True}
+    vehLights.update({'G3': True})
+    vehLights.update({'G4': True})
+    pedLights.update({'G5': False})
+    pedLights.update({'G6': False})
+    pedLights.update({'G7': False})
     # print({'pedLights': pedLights, 'vehLights': vehLights, 'tramApproach':True})
     return {'pedLights': pedLights, 'vehLights': vehLights, 'tramApproach':True}
 
@@ -234,7 +234,7 @@ def getResistenzaStatus2(current_frame):
 @task(returns=2,id_cam=IN, timestamp = IN, info_for_deduplicator=IN,polys=IN, kb=IN, areaState=IN)
 def semantic_analysis(id_cam,timestamp, info_for_deduplicator, polys, kb, areaState):
     # Alert list will contains binary alert value for inserting into csv
-    from CityNS.classes import Alert
+    # from CityNS.classes import Alert
     alertList = []    
     alertInfo = []
     alarmTime = 10000
@@ -343,40 +343,40 @@ def semantic_analysis(id_cam,timestamp, info_for_deduplicator, polys, kb, areaSt
             print(f'**ALERT: cam id:{id_cam}'\
                   f' -- {area} {severity} {description}'\
                   f' -- {info_for_deduplicator[i][0]}, {info_for_deduplicator[i][1]} | timeLapse = {alarmTime}')                          
-            alert = Alert(  id = str(id_cam) + '_' +  str(trackId), 
-                            source = id_cam,
-                            alert_category = alert_category, 
-                            severity= severity, 
-                            longitude = info_for_deduplicator[i][1],
-                            latitude = info_for_deduplicator[i][0],
-                            area = area, 
-                            description = description,
-                            timestamp = datetime.utcfromtimestamp(timestamp / 1000),
-                            valid_from = datetime.utcfromtimestamp(timestamp / 1000),
-                            valid_to = datetime.utcfromtimestamp((timestamp + alarmTime) / 1000))
-            alert.make_persistent()
-            alert.send_to_mqtt()
-            alert.send_to_kafka("dataclay", "batoni")     
+            # alert = Alert(  id = str(id_cam) + '_' +  str(trackId), 
+            #                 source = id_cam,
+            #                 alert_category = alert_category, 
+            #                 severity= severity, 
+            #                 longitude = info_for_deduplicator[i][1],
+            #                 latitude = info_for_deduplicator[i][0],
+            #                 area = area, 
+            #                 description = description,
+            #                 timestamp = datetime.utcfromtimestamp(timestamp / 1000),
+            #                 valid_from = datetime.utcfromtimestamp(timestamp / 1000),
+            #                 valid_to = datetime.utcfromtimestamp((timestamp + alarmTime) / 1000))
+            # alert.make_persistent()
+            # alert.send_to_mqtt()
+            # alert.send_to_kafka("dataclay", "batoni")     
     # AlertQueueFlag only triggers Alarm  when all the boxes has been computed
     if (alertQueueFlag):
             print(f'**ALERT: cam id: trafficJam_ {str(data)}'\
                   f' -- {area} {severity} {description}'\
                   f' -- 11.1831603045325, 43.75873372968 | timeLapse = {alarmTime}')                          
-            alert = Alert(  id = 'trafficJam_' + str(data) , 
-                            source = id_cam,
-                            alert_category = alert_category, 
-                            severity= severity, 
-                            longitude = 11.1831603045325, #  posicion semaforo vehiculos
-                            latitude = 43.75873372968,
-                            area = area, 
-                            description = description,
-                            #data = data,
-                            timestamp = datetime.utcfromtimestamp(timestamp / 1000),
-                            valid_from = datetime.utcfromtimestamp(timestamp / 1000),
-                            valid_to = datetime.utcfromtimestamp((timestamp + alarmTime) / 1000))
-            alert.make_persistent()
-            alert.send_to_mqtt() 
-            alert.send_to_kafka("dataclay", "batoni")  
+            # alert = Alert(  id = 'trafficJam_' + str(data) , 
+            #                 source = id_cam,
+            #                 alert_category = alert_category, 
+            #                 severity= severity, 
+            #                 longitude = 11.1831603045325, #  posicion semaforo vehiculos
+            #                 latitude = 43.75873372968,
+            #                 area = area, 
+            #                 description = description,
+            #                 #data = data,
+            #                 timestamp = datetime.utcfromtimestamp(timestamp / 1000),
+            #                 valid_from = datetime.utcfromtimestamp(timestamp / 1000),
+            #                 valid_to = datetime.utcfromtimestamp((timestamp + alarmTime) / 1000))
+            # alert.make_persistent()
+            # alert.send_to_mqtt() 
+            # alert.send_to_kafka("dataclay", "batoni")  
 
 
     return alertList,alertInfo
@@ -731,11 +731,11 @@ def main():
     parser.add_argument("--with_dataclay", nargs='?', const=True, type=str2bool, default=False)  # True as default
     args = parser.parse_args()
     
-    if (args.with_dataclay):
-        # Initialize dataclay
-        init()
-        # Load dataclay DKB class
-        from CityNS.classes import DKB
+    # if (args.with_dataclay):
+    #     # Initialize dataclay
+    #     init()
+    #     # Load dataclay DKB class
+    #     from CityNS.classes import DKB
 
         # initialize all computing units in all workers
         # num_cus = 8
@@ -745,16 +745,16 @@ def main():
     print(f"Init task completed {datetime.now()}")
     #input("Press enter to continue...")
 
-    if (args.with_dataclay):
-        #Dataclay KB generation
-        try:
-            print('kb initiated right')
-            kb = DKB.get_by_alias("DKB")
-        except DataClayException:
-            kb = DKB()
-            kb.make_persistent("DKB")
-    else:
-        kb = None
+    # if (args.with_dataclay):
+    #     #Dataclay KB generation
+    #     try:
+    #         print('kb initiated right')
+    #         kb = DKB.get_by_alias("DKB")
+    #     except DataClayException:
+    #         kb = DKB()
+    #         kb.make_persistent("DKB")
+    # else:
+    kb = None
 
     ### ACK TO START WORKFLOW AT tkDNN ###
     for socket_ip in args.tkdnn_ips:
