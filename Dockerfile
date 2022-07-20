@@ -103,6 +103,8 @@ RUN cp /root/tracker/build/track.cpython-36m-aarch64-linux-gnu.so smartcity-comp
 # Copy dataclay.jar from dataclay image
 #TODO: use env variable for version
 COPY --from=bscdataclay/logicmodule:dev20210603-alpine /home/dataclayusr/dataclay/dataclay.jar /root/smartcity-compss/dataclay/dataclay.jar
+RUN mkdir -p /root/data/florencia/batoni/roi/
+COPY roi/ /root/data/florencia/batoni/roi/
 
 # Establishing entrypoint for downloading the stubs and making the image ready at runtime
 WORKDIR /root/smartcity-compss

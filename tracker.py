@@ -231,7 +231,7 @@ def getResistenzaStatus2(current_frame):
     pedLights = {'G1': q['pedLightG1'].values, 'G2': q['pedLightG2'].values} # RED
     return {'pedLights': pedLights, 'vehLights': vehLights, 'tramApproach':q['tramState'].values[0]}
 
-@task(returns=1,id_cam=IN, timestamp = IN, info_for_deduplicator=IN,polys=IN, kb=IN, areaState=IN)
+@task(returns=2,id_cam=IN, timestamp = IN, info_for_deduplicator=IN,polys=IN, kb=IN, areaState=IN)
 def semantic_analysis(id_cam,timestamp, info_for_deduplicator, polys, kb, areaState):
     # Alert list will contains binary alert value for inserting into csv
     from CityNS.classes import Alert
