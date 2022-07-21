@@ -635,7 +635,8 @@ def execute_trackers(socket_ips, with_dataclay, kb):
     # Get camera-edge id existing in roi files names
     allCameraRoiPaths = [f for f in listdir(roi_file_path) if isfile(join(roi_file_path, f))]
     roiFileNames = [s for s in allCameraRoiPaths if re.findall("\-(.*?)\-.*.csv",s)]
-    
+    print(f' ------------  {listdir(roi_file_path)}')
+    print(f' ------------  {roiFileNames}'  )
     polys = {}
     # Get gdf roi polygons for each camera, and append with key to same dictionay.
     # This cannot be append to list with arbitrary order, could not be same order as receive boxes
