@@ -26,7 +26,7 @@ from geopandas import GeoDataFrame
 from shapely import geometry
 import numpy as np
 
-NUM_ITERS = 50
+NUM_ITERS = 100
 NUM_ITERS_POLLUTION = 25
 SNAP_PER_FEDERATION = 15
 N = 5
@@ -387,7 +387,7 @@ def semantic_analysis(id_cam,timestamp, info_for_deduplicator, polys, kb, areaSt
 # info_for_deduplicator: lat, lon, t.cl, velocity, yaw, t.id, pixel_x, pixel_y, pixel_w, pixel_h
 # output visuzlizer: 'cam_id frame timestamp category lat lon geohash speed yaw obj_id x y w h frame_tp timestamp_last_tp TPlat TPlon TPts'.split()
 
-def dump_deduplicated(info_deduplicated, iteration):
+def writef_deduplicated(info_deduplicated, iteration):
     import pygeohash as pgh
     import os
 
@@ -416,7 +416,7 @@ def dump_deduplicated(info_deduplicated, iteration):
             f.write(f"{id_cam} {iteration} {ts} {cl} {lat} {lon} {geohash} {speed} {yaw} {id_cam}_{trackId} {pixel_x} {pixel_y} {pixel_w} {pixel_h}\n")
 
 @task(id_cam=IN, frame = IN, areaState = IN)
-def dump_state(id_cam, frame, areaState,initTime):
+def writef_state(id_cam, frame, areaState,initTime):
 
     import os
     filename = './' + str(id_cam) + '_' + initTime + '_' + str(NUM_ITERS) + '_states.in'
@@ -428,7 +428,7 @@ def dump_state(id_cam, frame, areaState,initTime):
 
 
 @task(id_cam=IN, frame = IN, areaState = IN)
-def dump_alerts(id_cam, frame, alertInfo,initTime):
+def writef_alerts(id_cam, frame, alertInfo,initTime):
 
     import os
     filename = './' + str(id_cam) + '_' + initTime + '_' +  str(NUM_ITERS) + '_alarm.in'
@@ -443,7 +443,7 @@ def dump_alerts(id_cam, frame, alertInfo,initTime):
 
 
 @task(id_cam=IN, ts = IN, iteration = IN, info_for_deduplicator=IN,alertList = IN)
-def dump(id_cam, ts, iteration, info_for_deduplicator, alertList, initTime):
+def writef(id_cam, ts, iteration, info_for_deduplicator, alertList, initTime):
     import pygeohash as pgh
     import os
     filename = './' + str(id_cam) + '_' + initTime + '_' +  str(NUM_ITERS) + '.in'
@@ -466,11 +466,11 @@ def dump(id_cam, ts, iteration, info_for_deduplicator, alertList, initTime):
             pixel_h = info_for_deduplicator[i][9]
             inOut = alertList[i]
             # if (inOut):
-            #     print(f'Alert of Dump for {trackId}')
+            #     print(f'Alert of writef for {trackId}')
         
             f.write(f"{id_cam} {iteration} {ts} {cl} {lat} {lon} {geohash} {speed} {yaw} {id_cam}_{trackId} {pixel_x} {pixel_y} {pixel_w} {pixel_h} {inOut}\n")
 
-def dump3(id_cam, ts, frame, list_boxes, info_for_deduplicator, box_coords): 
+def writef3(id_cam, ts, frame, list_boxes, info_for_deduplicator, box_coords): 
     pred_info2 = np.zeros((len(list_boxes),11)) 
     long = np.zeros(len(list_boxes)) 
     lat = np.zeros(len(list_boxes)) 
@@ -678,10 +678,10 @@ def execute_trackers(socket_ips, with_dataclay, kb):
             # areaState = getResistenzaStatus2(frames[index])
         # info_deduplicated, foo_dedu = deduplicate(info_for_deduplicator, cam_ids, foo_dedu, frames)
             alertsList,alertInfo = semantic_analysis(cam_ids[index], timestamps[index], info_for_deduplicator[index] , polys, kb, areaState)
-            dump(cam_ids[index], timestamps[index], frames[index], info_for_deduplicator[index], alertsList,initTime)
-            dump_state(cam_ids[index],frames[index], areaState,initTime)
-            dump_alerts(cam_ids[index],frames[index], alertInfo, initTime)
-        # dump_deduplicated(info_deduplicated, i)  # or frames appended inside info_for_dedu in tracking
+            writef(cam_ids[index], timestamps[index], frames[index], info_for_deduplicator[index], alertsList,initTime)
+            writef_state(cam_ids[index],frames[index], areaState,initTime)
+            writef_alerts(cam_ids[index],frames[index], alertInfo, initTime)
+        # writef_deduplicated(info_deduplicated, i)  # or frames appended inside info_for_dedu in tracking
         """# TODO: accumulate trackers
         if i != 0 and (i+1) % N == 0:
             snapshot = persist_info_accumulated(deduplicated_trackers_list, i, kb)
@@ -774,7 +774,7 @@ def main():
 
 
     print("Exiting Application...")
-    finish()
+    #finish()
 
 
 if __name__ == "__main__":
