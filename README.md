@@ -1,95 +1,113 @@
-# COMPSs Obstacle Detection 
+# SmartCity COMPSs
 
-This repository contains the COMPSs Obstacle Detection application file and the configuration files required to execute it.
+This repository contains the necessary tools to execute the smartcity workflow using COMPSs. To build the environment [Docker](https://docs.docker.com/engine/install/) technology has been used, make sure to have it installed. Also, to execute the smartcity-compss code it is necessary to have already executing [Camera Edge](https://gitlab.bsc.es/ppc-bsc/software/camera-edge) program, with inside in its respective Docker image.
 
+## Environment (Docker images)
 
-## Prerequisites
+In order to build the image with the compss program running we have to take a look to different files.
 
-The following software components are **required** in order to fully execute the application workflow described in this repository.
+### Files definition
 
+#### Dockerfile
 
-### tkDNN
+This file contains the description of the image to execute the SmartCity with COMPSs. The image receive an argument for the building and has all the prerequisites necessaries for the installation/execution of COMPSs in a **arm64** architecture.
 
-Download and install [object detection (tkDNN)](https://github.com/class-euproject/class-edge/tree/bsc) software, installation and execution instructions are available at the same repository. This component **must** be running at the **edge resource running the COMPSs Obstacle Detection application** when executing it.
+The file follows the next structure:
 
-<!-- TODO: add deduplicator-->
+1. Copy the content from a **COMPSs base image**.
+2. Install **Java 8** and **Python**.
+3. Install **SSH**, **SSHpass**.
+4. Install **Tzdata**.
+5. Install **Eigen 3**.
+6. Install **Pybindll**.
+7. Install **deduplicator dependencies**.
+8. Install **COMPSs obstacle detection dependencies**.
+9. Clone the repository of the [smartcity-comps](https://gitlab.bsc.es/ppc-bsc/software/smartcity-compss.git).
+10. Copy data from `roi/` folder.
+11. Establishing **entrypoint** for downloading the stubs, and making the image readt at runtime.
 
-### COMPSs
+For further details take a look.
 
-Download and install [COMPSs](https://github.com/class-euproject/compss/tree/ppc/ilp-cloudprovider-merge), installation and execution instructions are available at the repository in the link.
+#### Makefile
 
+This file executes the commands to build and push the Docker image with respective name. Currently the image is only pushed to **Docker Hub**.
 
-### dataClay
+### Building the image
 
-Download and install [dataClay](https://github.com/class-euproject/dataclay-class), installation and execution instructions are available at the repository. Refer to the **deployment stage**, as the build stage can be skipped as the dockers are already present at Dockerhub. This component **must** be running at the **Cloud resource** when executing the COMPSs Obstacle Detection application.
+In order to build the Docker image, it is necessary to execute the following command in the root folder. It will take a long time to build everything.
 
-
-### PyWren
-
-Download and install [PyWren](https://github.com/class-euproject/pywren-ibm-cloud.git) at the **Cloud resource**, installation and execution instructions are available at the repository from the link.
-
-
-### Trajectory Prediction
-
-Download and install [trajectory prediction](https://github.com/class-euproject/trajectory-prediction) at the **Cloud resource**, installation and execution instructions are available at the repository from the link.
-
-
-### Collision Detection
-
-Download and install [collision detection](https://github.com/class-euproject/collision-detection) at the **Cloud resource**, installation and execution instructions are available at the repository from the link. This component is **not** required in order to execute the COMPSs Obstacle Detection application.
-
-
-### Python dependencies
-
-The application has been developed and tested with `Python 3.6.8`. The following python packages must be installed as well:
-
-```
-python3 -m pip install dataclay pymap3d zmq struct requests pygeohash geolib
-```
-
-
-## Installation
-
-### Pull submodules
-
-The tracker\_CLASS submodule is pulled by:
-
-```
-git submodule init
-git submodule update
-```
-
-### Compile tracker\_CLASS
-
-To compile the `tracker_CLASS` component, go to the `./tracker_CLASS/` folder after initializing the submodule and use the following commands:
-
-```
-mkdir build
-cd build
-cmake ../
+```bash
 make
 ```
 
-The previous steps will generate an executable with a name similar to `track.cpython-36m-aarch64-linux-gnu.so`. Use the following command to move the tracker executable next to the COMPSs Obstacle Detection application:
+The resulting image by default, has the name `bscppc/smartcity-compss:2.10` and it will be pushed to Docker Hub.
 
-```
-mv track*.so ../../track.so
-```
+## Smartcity workflow
 
+### Files definition
 
-### Update configuration files
+#### runDocker.sh
 
-The dataClay configuration file `./cfgfiles/client.properties` must be updated. The `HOST=${CLOUD_IP}` variable should be replaced to point to the IP address of your cloud.
+This file contains everything related to:
 
-Moreover, the COMPSs configuration files `project.xml` and `resources.xml` are used to define the computing resources that will be used to execute the tasks composing this application, which can be found in `./config/`. These files should be updated by replacing the IP address **IP1** for the actual IP address of your computing resource, the username **USER1** and the **PATH1** for the current absolute path to where the `app.py` is located inside your computing resource. For each computing resource that is going to be used, you need to add the `<ComputeNode>` XML tag with the required information described above.
+- Mapping volumes.
+- Ports.
 
+```bash
+#!/bin/bash
 
-## Execution 
-
-To launch the application use the following script:
-
-```
-runcompss --lang=python --project=config/project.xml --resources=config/resources.xml --cpu_affinity=disabled --python_interpreter=python3 --scheduler="es.bsc.compss.scheduler.rtheuristics.RTHeuristicsScheduler" --scheduler_config_file=config/sched.config app.py
+docker run -it --name smartcity01   -p 8887:8887 -p 43001:43001 -p 43002:43002 --net bridge --gpus all -v ~/smartcity-compss:/root/smartcity-compss -v /root/smartcity-compss/lib -v /root/smartcity-compss/dataclay -v ~/data:/root/data  bscppc/smartcity-compss:2.10-3.6 master /bin/bash
 ```
 
-NOTE: To remind again that the application relies on the **tkDNN** component being up and running on the **edge** resource, and **dataClay** and **Pywren** components being up and running on the **Cloud** resource. Follow the instructions to execute the different components in their respective repositories.
+#### run.sh
+
+This file launches the workflow, `tracker.py`, and captures all the information emited through the *logs*. It is important to have in mind that this script does not execute the workflow using COMPSs but, launches a linux process running in the background (`nohup`).
+
+```bash
+#!/bin/bash
+
+SECONDS=0 && \
+nohup python3 tracker.py 10.50.100.3:8887 10.50.100.3:8886 --with_dataclay > ./program.log 2>&1 & \
+bg_pid=$! && \
+echo "one $!" && \
+wait $bg_pid && echo "waiting job seconds: $SECONDS" && \
+rsync -uazPt *.in ~/data/florencia/batoni/logs
+```
+
+#### runcompss.sh
+
+This file launches the workflow and captures all the information emited through the *logs*. The script uses COMPSs in order to improve the performance of the workflow. Inside the file it can be found the different flags when executing the workflow with COMPSs.
+
+```bash
+#!/bin/bash
+
+scripts/user/runcompss-docker  --worker-containers=1 \
+                  --swarm-manager='192.168.121.183:2377' \
+                  --image-name='bscppc/smartcity-compss:2.10-3.6' \
+                  --context-dir='/root/smartcity-compss/' \
+                  -d -t --python_interpreter=python3 --lang=python --master_name=192.168.121.183 --master_port=43001 \
+                  --scheduler="es.bsc.compss.scheduler.fifo.FIFOScheduler"  \
+                  tracker.py edge01:8887 edge01:8886 --with_dataclay 
+```
+
+### Executing the workflow
+
+Firstly, we have to launch the Docker Image generated previously (`bscppc/smartcity-compss:2.10`). This can be done by executing the `runDocker.sh` script.
+
+```bash
+./runDocker.sh
+```
+
+After executing the script, the terminal will enter into the container to execute the different commands.
+
+Finally, run the `runcompss.sh` script to execute the workflow with COMPSs. *If you want to run the code without using COMPSs, it is also possible by running the `run.sh` script.*
+
+```bash
+./runcompss.sh # Executing workflow with COMPSs
+
+# OR #
+
+./run.sh # Executing workflow without COMPSs
+```
+
+**\*Important\*: Make sure that the Camera Edge program is running in another container before executing smartcity-compss program; otherwise, it will not work.**
