@@ -10,6 +10,7 @@ from datetime import datetime
 from socket import timeout
 #from utils import pixel2GPS
 import paho.mqtt.client as mqtt
+import time
 from lib import track
 #from lib import deduplicator as dd
 import socket
@@ -26,16 +27,39 @@ from geopandas import GeoDataFrame
 from shapely import geometry
 import numpy as np
 
-NUM_ITERS = 1000
+NUM_ITERS = 120000
 NUM_ITERS_POLLUTION = 25
 SNAP_PER_FEDERATION = 15
 N = 5
 NUM_ITERS_FOR_CLEANING = 10000
 CD_PROC = 0
 
+AREA = 'arcipressi'
+
+BATONI_LOG_OFFSET = 2078
+ARCIPRESSI_LOG_OFFSET = 1512
+RESISTENZA_LOG_OFFSET = 80800
+
+BATONI_MQTT_FRAME_RATE = 10
+ARCIPRESSI_MQTT_FRAME_RATE = 5
+RESISTENZA_MQTT_FRAME_RATE  = 2
+
+ARCIPRESSI_VIDEO_FRAME_NUMBER = 144
+RESISTENZA_VIDEO_FRAME_NUMBER = 131
+BATONI_VIDEO_FRAME_NUMBER = 522
+
+VIDEO_FRAME_NUMBER = globals()[AREA.upper() + '_VIDEO_FRAME_NUMBER']
+LOG_OFFSET = globals()[AREA.upper() + '_LOG_OFFSET']
+MQTT_FRAME_RATE = globals()[AREA.upper() + '_MQTT_FRAME_RATE']
+
+#current_frame, offset = 0
+
+
 pollution_file_name = "pollution.csv"
-roi_file_path = "/root/data/florencia/batoni/roi/"
+roi_file_path = '/root/data/florencia/' + AREA + '/roi/'
 #roi_path = os.path.realpath(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'data', 'mydata.json'))
+def on_publish(client, userdata, mid):
+    print("sent a message")
 
 def getRoi(roi_path):
     df = pd.read_csv(roi_path)
@@ -105,6 +129,7 @@ def receive_boxes(socket_ip, dummy):
 
     while no_read:
         try:
+            print('Trying to read')
             no_read = False
             message, address = serverSocket.recvfrom(16000)
 
@@ -127,6 +152,7 @@ def receive_boxes(socket_ip, dummy):
             # print(range(1 + int_size + unsigned_long_size + double_size * 2, len(message),
             #                     double_size * 10 + int_size + 1 + float_size * 4))
             init_point = (lat, lon)
+
             for offset in range(1 + int_size + unsigned_long_size + double_size * 2, len(message),
                                 double_size * 10 + int_size + 1 + float_size * 4):
                 north, east, frame_number, obj_class = struct.unpack_from('ddIc', message[
@@ -221,24 +247,50 @@ def getBatoniStatus(kb):
     return {'pedLights': pedLights, 'vehLights': vehLights, 'tramApproach':True}
 
 
-def getResistenzaStatus2(current_frame):
+def getResistenzaStatus2(current_frame, offset = 0):
     # filename = './' + str(id_cam) + '_' + str(NUM_ITERS) + '_states.in'
-    filename = './status.log'
+    filename = '/root/data/florencia/SCWC2022Videos/Resistenza/' + str(20936) + '_2022-06-15_11-50-18_7500_' + 'states.in'
+    df = pd.read_csv(filename, sep = " ",names = ['id_cam','frame','pedLightG1','pedLightG2','vehLightG3','tramState'])
+    df.head()
+    q = df.iloc[df.index.get_loc(current_frame + offset, method='pad')]
+    vehLights = {'G3': q['vehLightG3']}     
+    pedLights = {'G1': q['pedLightG1'], 'G2': q['pedLightG2']} # RED
+    print( {'pedLights': pedLights, 'vehLights': vehLights, 'tramApproach':q['tramState']})
+    return {'pedLights': pedLights, 'vehLights': vehLights, 'tramApproach':q['tramState']}
 
-    df = pd.read_csv(filename, names = ['id_cam','frame','pedLightG1','pedLightG2','vehLightG3','tramState'])
-    q = df.loc[df.frame == current_frame]
-    vehLights = {'G3': q['vehLightG3'].values}     
-    pedLights = {'G1': q['pedLightG1'].values, 'G2': q['pedLightG2'].values} # RED
-    return {'pedLights': pedLights, 'vehLights': vehLights, 'tramApproach':q['tramState'].values[0]}
+
+def getArcipressiStatus2(current_frame, offset = 0):
+    # filename = './' + str(id_cam) + '_' + str(NUM_ITERS) + '_states.in'
+    filename = '/root/data/florencia/SCWC2022Videos/Arcipressi/' + str(20936) + '_2022-07-06_10-58-03_20000_' + 'states.in'
+
+    df = pd.read_csv(filename, sep = " ", names = ['id_cam','frame','pedLightG1','pedLightG2','vehLightG3', 'vehLightG4', 'pedLightG5', 'pedLightG6', 'pedLightG7' ,'pedLightG8' , 'pedLightG33', 'tramState']).set_index('frame')
+    q = df.iloc[df.index.get_loc(current_frame + offset, method='pad')]
+    vehLights = {'G3': q['vehLightG3'] ,'G4': q['vehLightG4'] }     
+    print(vehLights) 
+    pedLights = {'G1': q['pedLightG1'], 'G2': q['pedLightG2'], 'G5': q['pedLightG5'], 'G6': q['pedLightG6'], 'G7': q['pedLightG7'], 'G8': q['pedLightG8'] , 'G33': q['pedLightG33']} # RED
+    return {'pedLights': pedLights, 'vehLights': vehLights, 'tramApproach':q['tramState']}
+
+
+def getBatoniStatus2(current_frame, offset = 0):
+    filename = '/root/data/florencia/SCWC2022Videos/Batoni/' + str(20937) + '_2022-07-04_13-09-36_10000_' + 'states.in'
+    # filename = './status.log'
+
+    df = pd.read_csv(filename, sep = " ",names = ['id_cam','frame','pedLightG1','vehLightG2','vehLightG3', 'vehLightG4', 'pedLightG5', 'pedLightG6', 'pedLightG7','tramState']).set_index('frame')
+    q = df.iloc[df.index.get_loc(current_frame + offset, method='pad')]
+   
+    vehLights = {'G2': q['vehLightG2'],'G3': q['vehLightG3'], 'G4': q['vehLightG4']}    
+    pedLights = {'G1': q['pedLightG1'], 'G5': q['pedLightG5'], 'G6': q['pedLightG6'], 'G7': q['pedLightG7']} # RED
+    print('-- -- --')
+    print(q)
+    return {'pedLights': pedLights, 'vehLights': vehLights, 'tramApproach':q['tramState']}
 
 @task(returns=2,id_cam=IN, timestamp = IN, info_for_deduplicator=IN,polys=IN, kb=IN, areaState=IN)
-def semantic_analysis(id_cam,timestamp, info_for_deduplicator, polys, kb, areaState):
+def semantic_analysis(id_cam, frame, timestamp, info_for_deduplicator, polys, kb, areaState, mqttClient):
     # Alert list will contains binary alert value for inserting into csv
     # from CityNS.classes import Alert
-    alertList = []    
     alertInfo = []
     alarmTime = 10000
-    area = 'batoni'
+    area = AREA
     carQueueLength = 0
     alertQueueFlag = False
     # All polys are passed to all cameras in dictionary. Here we select the correct one
@@ -248,6 +300,8 @@ def semantic_analysis(id_cam,timestamp, info_for_deduplicator, polys, kb, areaSt
 
     # Inspect if every box is in a polygon
     for i, box in enumerate(info_for_deduplicator):
+        lat = box[0]
+        lon = box[1]
         cl = box[2]
         speed = box[3]
         yaw = box[4]  # info_for_deduplicator[i][4]
@@ -256,8 +310,7 @@ def semantic_analysis(id_cam,timestamp, info_for_deduplicator, polys, kb, areaSt
         pixel_y = box[7]  # pixels[tracker.idx][1]
         pixel_w = box[8]  # OR list_boxes[tracker.idx].x  # pixels[tracker.idx][0]
         pixel_h = box[9]
-        alertList.append(0)
-        alertInfo.append([0, 0, 0, 0, 0])
+        #alertInfo.append([0, 0, 0, 0, 0])
         alertFlag = False
 
 
@@ -268,28 +321,25 @@ def semantic_analysis(id_cam,timestamp, info_for_deduplicator, polys, kb, areaSt
                 # Pedestrians in tramway when tram is nearby
                     if(polys['pedPolys'].loc[j,'class'] in ['tramway', 'railcross'] and areaState['tramApproach']):#and kb.tram_in_station):
                         alert_category , severity  = 'pedestrianOnRoad' , 'critical'
-                        description = 'Pedestrians in tramway when tram is nearby'
+                        description = '"Pedestrians in tramway when tram is nearby"'
                         alertFlag = True
-                        alertList[-1] = 1
-                        alertInfo[-1] = [1, alert_category, severity, description, str(id_cam) + '_' + str(trackId)]
+                        alertInfo.append([frame, 1, alert_category, severity, description, str(id_cam) + '_' + str(trackId), pixel_x, pixel_y, pixel_w, pixel_h, lat, lon])
 
                 # Pedestrians in car path               
                     elif(polys['pedPolys'].loc[j,'class'] == 'road'):
                         alert_category , severity  = 'pedestrianOnRoad' , 'high'
-                        description =  'Pedestrians in car path '
+                        description =  '"Pedestrians in car path"'
                         alertFlag = True
-                        alertList[-1] = 2
-                        alertInfo[-1] = [2, alert_category, severity, description, str(id_cam) + '_' + str(trackId)]
+                        alertInfo.append([frame, 2, alert_category, severity, description, str(id_cam) + '_' + str(trackId), pixel_x, pixel_y, pixel_w, pixel_h, lat, lon])
 
 
                 # Pedestrians crossing cross
                     elif(polys['pedPolys'].loc[j,'class'] in ['pedCross', 'pedTramCross']):
                         if not areaState['pedLights'][str(polys['pedPolys'].loc[j,'trafficLight'])]: # and traffic light is red
                             alert_category , severity  = 'pedestrianOnRoad' , 'high' 
-                            description =  'Pedestrian crossing with red traffic light'
+                            description =  '"Pedestrian crossing with red traffic light"'
                             alertFlag = True
-                            alertList[-1] = 3
-                            alertInfo[-1] = [3, alert_category, severity, description, str(id_cam) + '_' + str(trackId)]
+                            alertInfo.append([frame, 3, alert_category, severity, description, str(id_cam) + '_' + str(trackId), pixel_x, pixel_y, pixel_w, pixel_h, lat, lon])
 
                     else:
                         alertFlag = False
@@ -303,19 +353,17 @@ def semantic_analysis(id_cam,timestamp, info_for_deduplicator, polys, kb, areaSt
                     if(polys['vehPolys'].loc[j,'class'] == 'railcross'): #and kb.tram_in_station):
                         if (not areaState['vehLights'][str(polys['vehPolys'].loc[j,'trafficLight'])] and  areaState['tramApproach']): 
                             alert_category , severity  = 'hazardOnRoad' , 'critical'
-                            description =  'Vehicle in railcross when tram is nearby and light is red'
+                            description =  '"Vehicle in railcross when tram is nearby and light is red"'
                             alertFlag = True
-                            alertList[-1] = 4
-                            alertInfo[-1] = [4, alert_category, severity, description, str(id_cam) + '_' + str(trackId)]
+                            alertInfo.append([frame, 4, alert_category, severity, description, str(id_cam) + '_' + str(trackId), pixel_x, pixel_y, pixel_w, pixel_h, lat, lon])
 
                     # Cars stopping late
                     elif(polys['vehPolys'].loc[j,'class'] == 'afterStop'):
                          if not areaState['vehLights'][str(polys['vehPolys'].loc[j,'trafficLight'])]: # and traffic light is red
                             alert_category , severity  = 'hazardOnRoad', 'critical'
-                            description =  'Vehicle between stop and railway with red light'
+                            description =  '"Vehicle between stop and railway with red light"'
                             alertFlag = True
-                            alertList[-1] = 6
-                            alertInfo[-1] = [6, alert_category, severity, description, str(id_cam) + '_' + str(trackId)]
+                            alertInfo.append([frame, 6, alert_category, severity, description, str(id_cam) + '_' + str(trackId), pixel_x, pixel_y, pixel_w, pixel_h, lat, lon])
 
 
                         # if areaState['vehLights']['0' + str(polys['vehPolys'].loc[j,'trafficLight'])]:#and kb.tram_in_station):
@@ -332,17 +380,19 @@ def semantic_analysis(id_cam,timestamp, info_for_deduplicator, polys, kb, areaSt
                         # Cars approach towards railway but red light   
                         if (carQueueLength > 2):        
                             alert_category , severity  = 'trafficJam', 'informational'
-                            description =  'Vehicle queue of length ' + str(carQueueLength)
+                            description =  '"Vehicle queue of length"' + str(carQueueLength)
                             alertQueueFlag = True
                             data = carQueueLength
-                            alertList[-1] = 5
-                            alertInfo[-1] = [5, alert_category, severity, description, str(id_cam) + '_' + str(trackId)]
+                            alertInfo.append([frame, 5, alert_category, severity, description, str(id_cam) + '_' + str(trackId), pixel_x, pixel_y, pixel_w, pixel_h, lat, lon])
 
         # Any alertFlag send Alert.
         if (alertFlag):
-            print(f'**ALERT: cam id:{id_cam}'\
+            msg = f'**ALERT: cam id:{id_cam}'\
                   f' -- {area} {severity} {description}'\
-                  f' -- {info_for_deduplicator[i][0]}, {info_for_deduplicator[i][1]} | timeLapse = {alarmTime}')                          
+                  f' -- {lat}, {lon} | timeLapse = {alarmTime}'      
+            print(msg)
+            alerts_to_mqtt(msg, mqttClient, alert_category)
+                          
             # alert = Alert(  id = str(id_cam) + '_' +  str(trackId), 
             #                 source = id_cam,
             #                 alert_category = alert_category, 
@@ -359,9 +409,12 @@ def semantic_analysis(id_cam,timestamp, info_for_deduplicator, polys, kb, areaSt
             # alert.send_to_kafka("dataclay", "batoni")     
     # AlertQueueFlag only triggers Alarm  when all the boxes has been computed
     if (alertQueueFlag):
-            print(f'**ALERT: cam id: trafficJam_ {str(data)}'\
+            msg = f'**ALERT: cam id: trafficJam_ {str(data)}'\
                   f' -- {area} {severity} {description}'\
-                  f' -- 11.1831603045325, 43.75873372968 | timeLapse = {alarmTime}')                          
+                  f' -- {lat}, {lon}  | timeLapse = {alarmTime}'
+            print(msg) 
+            alerts_to_mqtt(msg, mqttClient, alert_category)
+            #alerts_to_mqtt(msg, mqttClient, 'dashboard')                  
             # alert = Alert(  id = 'trafficJam_' + str(data) , 
             #                 source = id_cam,
             #                 alert_category = alert_category, 
@@ -379,7 +432,7 @@ def semantic_analysis(id_cam,timestamp, info_for_deduplicator, polys, kb, areaSt
             # alert.send_to_kafka("dataclay", "batoni")  
 
 
-    return alertList,alertInfo
+    return alertInfo
 
 
 
@@ -413,6 +466,7 @@ def writef_deduplicated(info_deduplicated, iteration):
             pixel_y = info[i][8]  # pixels[tracker.idx][1]
             pixel_w = info[i][9]  # OR list_boxes[tracker.idx].x  # pixels[tracker.idx][0]
             pixel_h = info[i][10]
+
             f.write(f"{id_cam} {iteration} {ts} {cl} {lat} {lon} {geohash} {speed} {yaw} {id_cam}_{trackId} {pixel_x} {pixel_y} {pixel_w} {pixel_h}\n")
 
 @task(id_cam=IN, frame = IN, areaState = IN)
@@ -424,26 +478,35 @@ def writef_state(id_cam, frame, areaState,initTime):
         f = open(filename, "w+")
         f.close()
     with open(filename, "a+") as f:
-        f.write(f"{id_cam} {frame} {int(areaState['pedLights']['G1'])} {int(areaState['vehLights']['G2'])} {int(areaState['vehLights']['G3'])} {int(areaState['vehLights']['G4'])} {int(areaState['pedLights']['G5'])} {int(areaState['pedLights']['G6'])} {int(areaState['pedLights']['G7'])} {int(areaState['tramApproach'])}\n")
-
+        # batoni
+        #f.write(f"{id_cam} {frame} {int(areaState['pedLights']['G1'])} {int(areaState['vehLights']['G2'])} {int(areaState['vehLights']['G3'])} {int(areaState['vehLights']['G4'])} {int(areaState['pedLights']['G5'])} {int(areaState['pedLights']['G6'])} {int(areaState['pedLights']['G7'])} {int(areaState['tramApproach'])}\n")
+        # arcipressi
+        #f.write(f"{id_cam} {frame} {int(areaState['pedLights']['G1'])} {int(areaState['pedLights']['G2'])} {int(areaState['vehLights']['G3'])} {int(areaState['vehLights']['G4'])} {int(areaState['pedLights']['G5'])} {int(areaState['pedLights']['G6'])} {int(areaState['pedLights']['G7'])} {int(areaState['pedLights']['G33'])} {int(areaState['tramApproach'])}\n")
+        # resistenza
+        print()
+        #f.write(f"{id_cam} {frame} {int(areaState['pedLights']['G1'])} {int(areaState['pedLights']['G2'])} {int(areaState['vehLights']['G3'])} {int(areaState['tramApproach'])}\n")
 
 @task(id_cam=IN, frame = IN, areaState = IN)
-def writef_alerts(id_cam, frame, alertInfo,initTime):
+def writef_alerts(id_cam, frame, alertInfo, initTime):
 
     import os
     filename = './' + str(id_cam) + '_' + initTime + '_' +  str(NUM_ITERS) + '_alarm.in'
     if not os.path.exists(filename):
         f = open(filename, "w+")
         f.close()
+    if (len(alertInfo) == 0):
+        with open(filename, "a+") as f:
+            f.write(f"{frame} {0} {0} {0} {0} {0} {0} {0} {0} {0} {0} {0}\n")
     for i in range(len(alertInfo)):
         with open(filename, "a+") as f:
             # alertInfo -> [alert type, alert_category, severity, description, alertId]
-            f.write(f"{frame}; {int(alertInfo[i][0])};{alertInfo[i][1]}; {alertInfo[i][2]};{alertInfo[i][3]};{alertInfo[i][4]}\n")
+            print(alertInfo)
+            f.write(f"{frame} {int(alertInfo[i][0])} {alertInfo[i][1]} {alertInfo[i][2]} {alertInfo[i][3]} {alertInfo[i][4]} {alertInfo[i][5]} {alertInfo[i][6]} {alertInfo[i][7]} {alertInfo[i][8]} {alertInfo[i][9]} {alertInfo[i][10]} {alertInfo[i][11]}\n")
 
 
 
-@task(id_cam=IN, ts = IN, iteration = IN, info_for_deduplicator=IN,alertList = IN)
-def writef(id_cam, ts, iteration, info_for_deduplicator, alertList, initTime):
+@task(id_cam=IN, ts = IN, iteration = IN, info_for_deduplicator=IN)
+def writef(id_cam, ts, iteration, info_for_deduplicator, initTime):
     import pygeohash as pgh
     import os
     filename = './' + str(id_cam) + '_' + initTime + '_' +  str(NUM_ITERS) + '.in'
@@ -464,11 +527,10 @@ def writef(id_cam, ts, iteration, info_for_deduplicator, alertList, initTime):
             pixel_y = info_for_deduplicator[i][7]  # pixels[tracker.idx][1]
             pixel_w = info_for_deduplicator[i][8]  # OR list_boxes[tracker.idx].x  # pixels[tracker.idx][0]
             pixel_h = info_for_deduplicator[i][9]
-            inOut = alertList[i]
             # if (inOut):
             #     print(f'Alert of writef for {trackId}')
         
-            f.write(f"{id_cam} {iteration} {ts} {cl} {lat} {lon} {geohash} {speed} {yaw} {id_cam}_{trackId} {pixel_x} {pixel_y} {pixel_w} {pixel_h} {inOut}\n")
+            f.write(f"{id_cam} {iteration} {ts} {cl} {lat} {lon} {geohash} {speed} {yaw} {id_cam}_{trackId} {pixel_x} {pixel_y} {pixel_w} {pixel_h}\n")
 
 def writef3(id_cam, ts, frame, list_boxes, info_for_deduplicator, box_coords): 
     pred_info2 = np.zeros((len(list_boxes),11)) 
@@ -557,25 +619,6 @@ def persist_info(trackers, count, kb, with_pollution):
     #             f.write(f"{ev[0]}_{ev[1]}, {ev[0]}, {trackers[0]}, {obj_type}, {ev[3]}\n")  # TODO: average link speed
     return snapshot
 
-
-@constraint(AppSoftware="xavier")
-@task(snapshot=IN, backend_to_federate=IN)
-def federate_info(snapshot, backend_to_federate):
-    snapshot.federate_to_backend(backend_to_federate)
-
-
-@task(snapshots=COLLECTION_IN, backend_to_federate=IN)
-def federate_info_accumulated(snapshots, backend_to_federate):
-    for snapshot in snapshots:
-        snapshot.federate_to_backend(backend_to_federate)
-
-
-@task(kb=IN, foo=INOUT)
-def remove_objects_from_dataclay(kb, foo):
-    kb.remove_old_snapshots_and_objects(int(datetime.now().timestamp() * 1000), True)
-    return foo
-
-
 # @constraint(AppSoftware="phemlight") # to be executed in Cloud. Remove it otherwise
 @constraint(AppSoftware="xavier")
 @task(foo=INOUT)
@@ -613,8 +656,26 @@ def boxes_and_track(socket_ip, trackers_list, tracker_indexes, cur_index):
     _, _, list_boxes, _ = receive_boxes(socket_ip, 0)
     return execute_tracking(list_boxes, trackers_list, tracker_indexes, cur_index)
 
+def alerts_to_mqtt(msg, mqttClient, topic):
+    print('print msg:\n')
+    print(msg)
+    print('print len msg:\n')
+    print(len(msg))
 
-def execute_trackers(socket_ips, with_dataclay, kb):
+
+    info = mqttClient.publish(
+        topic='/alert/' + topic,
+        payload=msg.encode('utf-8'),
+        qos=0,
+    )
+    # Because published() is not synchronous,
+    # it returns false while he is not aware of delivery that's why calling wait_for_publish() is mandatory.
+    info.wait_for_publish()
+    print('****************************')
+    print(info.is_published())
+
+
+def execute_trackers(socket_ips, with_dataclay, kb, mqttClient):
     import uuid
     import time
     import sys
@@ -643,7 +704,6 @@ def execute_trackers(socket_ips, with_dataclay, kb):
     for i, roiFileName in enumerate(roiFileNames):
         cameraEdgeId = re.findall("\-(.*?)\-.*.csv", roiFileName)[0]
         gdfPolys = getRoi(roi_file_path + roiFileName)  
-
         polys.update({cameraEdgeId : {'vehPolys': gdfPolys[gdfPolys['class'].isin(["queue", "road", "railcross", "afterStop"])].reset_index(drop=True),
                                     'pedPolys': gdfPolys[gdfPolys['class'].isin(["road", "pedCross", "railcross", "pedTramCross", "tramway"])].reset_index(drop=True)}
         })
@@ -664,45 +724,43 @@ def execute_trackers(socket_ips, with_dataclay, kb):
         print(i)
 
         # readScenarioState: trafficLights, tram NGAP
-        areaState = getBatoniStatus(kb)
+        # areaState = getBatoniStatus(kb)
         # print(areaState)
-
+        print(socket_ips)
         for index, socket_ip in enumerate(socket_ips):
             cam_ids[index], timestamps[index], list_boxes, reception_dummies[index], box_coords[index], init_point, frames[index] = \
                                 receive_boxes(socket_ip, reception_dummies[index])
+            # If the input is a looping video , this corrects the frame number to original value    
+            frames[index] = frames[index] - ( ((frames[index] -1 ) // VIDEO_FRAME_NUMBER) * VIDEO_FRAME_NUMBER)
             trackers_list[index], cur_index[index], info_for_deduplicator[index] = execute_tracking(list_boxes,
                                                                                                     trackers_list[index],
                                                                                                     cur_index[index],
                                                                                                      init_point)
 
-            # areaState = getResistenzaStatus2(frames[index])
+            #areaState = getResistenzaStatus2(frames[index], LOG_OFFSET)
+            areaState = globals()['get' + AREA.capitalize() + 'Status2'](frames[index], LOG_OFFSET)
+
         # info_deduplicated, foo_dedu = deduplicate(info_for_deduplicator, cam_ids, foo_dedu, frames)
-            alertsList,alertInfo = semantic_analysis(cam_ids[index], timestamps[index], info_for_deduplicator[index] , polys, kb, areaState)
-            writef(cam_ids[index], timestamps[index], frames[index], info_for_deduplicator[index], alertsList,initTime)
+            alertInfo = semantic_analysis(cam_ids[index], frames[index], timestamps[index], info_for_deduplicator[index] , polys, kb, areaState, mqttClient)
+            writef(cam_ids[index], timestamps[index], frames[index], info_for_deduplicator[index],initTime)
             writef_state(cam_ids[index],frames[index], areaState,initTime)
-            writef_alerts(cam_ids[index],frames[index], alertInfo, initTime)
-        # writef_deduplicated(info_deduplicated, i)  # or frames appended inside info_for_dedu in tracking
-        """# TODO: accumulate trackers
-        if i != 0 and (i+1) % N == 0:
-            snapshot = persist_info_accumulated(deduplicated_trackers_list, i, kb)
-            deduplicated_trackers_list.clear() 
-        """
-        # frames[0] not correct when more than one camera. It should be passed in info_for_deduplicator and returned in deduplicated_trackers
-        #snapshot = persist_info(deduplicated_trackers, i, kb, with_pollution)
-        """
-        snapshots.append(snapshot)
-        if i != 0 and (i+1) % SNAP_PER_FEDERATION == 0:
-            federate_info_accumulated(snapshots, dataclay_to_federate)
-        """
-        #federate_info(snapshot, external_backend_id)
+            writef_alerts(cam_ids[index],frames[index], alertInfo,  initTime)
+
+            if (i % MQTT_FRAME_RATE == 0):
+                # [(' '.join(str(x) for x in ialertInfo)) for ialertInfo in alertInfo]
+                print('Send alert\n')
+                if (len(alertInfo) == 0):
+                    alerts_to_mqtt(f'{frames[index]},{0},{0},{0},{0},{0},{0},{0},{0},{0},{0},{0}', mqttClient, 'dashboard')
+                else:
+                    print('---- - - -')
+                    print(alertInfo)
+                    [alerts_to_mqtt(','.join(str(x) for x in ialertInfo), mqttClient, 'dashboard') for ialertInfo in alertInfo]
+
+        
+
+      
         i += 1
-        # if i != 0 and i % NUM_ITERS_POLLUTION == 0 and with_pollution:
-        #     print("Executing pollution")
-        #     foo = analyze_pollution(foo)
-        # if i != 0 and i % NUM_ITERS_FOR_CLEANING == 0:
-        #     # compss_barrier()
-        #     # delete objects based on timestamps
-        #     foo = remove_objects_from_dataclay(kb, foo)
+
     print('last barrier')
     compss_barrier()
     end_time = time.time()
@@ -768,7 +826,14 @@ def main():
         sink.close()
         context.term()
 
-    execute_trackers(args.tkdnn_ips, args.with_dataclay, kb)
+    mqttClient = mqtt.Client("Alerta")
+    mqttClient.on_publish = on_publish
+    mqttClient.connect('192.168.51.174', 1883)
+    # start a new thread
+    mqttClient.loop_start()
+
+
+    execute_trackers(args.tkdnn_ips, args.with_dataclay, kb, mqttClient)
 
 
 
