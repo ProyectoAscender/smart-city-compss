@@ -73,18 +73,18 @@ RUN apt install -y libeigen3-dev python3-matplotlib python-dev libgdal-dev libce
 
 
 # Compss obstacle detection dependencies
-RUN python3 -m pip install geolib dataclay pymap3d zmq requests pygeohash paho-mqtt pandas shapely geopandas
+RUN python3 -m pip install geolib pymap3d zmq requests pygeohash paho-mqtt pandas shapely geopandas
 
 # Compss obstacle detection
-RUN echo "dummy11122211111"
 # Tracker class project
-RUN git clone https://gitlab.bsc.es/ppc-bsc/software/tracker.git -b dev && \
-    cd tracker && \
-    git submodule update --init --recursive && \
-    mkdir build  && \
-    cd build && \
-    cmake .. -DWITH_MATPLOTLIB=OFF && \
-    make -j8
+# RUN git clone https://gitlab.bsc.es/ppc-bsc/software/tracker_CLASS.git -b dev && \
+#     cd tracker_CLASS && \
+#     cat src/modules.cpp && \ 
+#     git submodule update --init --recursive && \
+#     mkdir build  && \
+#     cd build && \
+#     cmake .. -DWITH_MATPLOTLIB=OFF && \
+#     make -j8
 
 RUN git clone https://gitlab.bsc.es/ppc-bsc/software/smartcity-compss.git
 # # Tracker class project
@@ -96,6 +96,17 @@ RUN git clone https://gitlab.bsc.es/ppc-bsc/software/smartcity-compss.git
 #     cmake .. -DWITH_MATPLOTLIB=OFF && \
 #     make -j8
 
+RUN mkdir tracker
+COPY tracker ./tracker
+
+RUN cd tracker && \
+    git submodule update --init --recursive && \
+    cat src/modules.cpp && \
+    mkdir build  && \
+    cd build && \
+    cmake .. -DWITH_MATPLOTLIB=OFF && \
+    make -j8
+
 RUN cp /root/tracker/build/track.cpython-36m-aarch64-linux-gnu.so smartcity-compss/lib
 #RUN cp /root/deduplicator/build/deduplicator.cpython-36m-aarch64-linux-gnu.so smartcity-compss/lib
     # cp /root/deduplicator/build/deduplicator.cpython-36m-x86_64-linux-gnu.so . && \
@@ -103,9 +114,9 @@ RUN cp /root/tracker/build/track.cpython-36m-aarch64-linux-gnu.so smartcity-comp
 # Copy dataclay.jar from dataclay image
 #TODO: use env variable for version
 COPY --from=bscdataclay/logicmodule:dev20210603-alpine /home/dataclayusr/dataclay/dataclay.jar /root/smartcity-compss/dataclay/dataclay.jar
-RUN mkdir -p /root/data/florencia/batoni/roi/
-COPY roi/ /root/data/florencia/batoni/roi/
-
+# RUN mkdir -p /root/data/florencia/batoni/roi/
+# COPY roi/ /root/data/florencia/batoni/roi/
+RUN mkdir -p /root/data 
 # Establishing entrypoint for downloading the stubs and making the image ready at runtime
 WORKDIR /root/smartcity-compss
-ENTRYPOINT ["./entrypoint.sh"]
+# ENTRYPOINT ["./entrypoint.sh"]

@@ -5,3 +5,7 @@ bg_pid=$! && \
 echo "one $!" && \
 wait $bg_pid && echo "waiting job seconds: $SECONDS" && \
 rsync -uazPt *.in ~/data/florencia/batoni/logs
+
+
+43.7677536010742    11.2096843719482
+43.767752195075076, 11.209683482064989
