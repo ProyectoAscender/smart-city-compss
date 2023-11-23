@@ -86,34 +86,24 @@ RUN python3 -m pip install geolib pymap3d zmq requests pygeohash paho-mqtt panda
 #     cmake .. -DWITH_MATPLOTLIB=OFF && \
 #     make -j8
 
-RUN git clone https://gitlab.bsc.es/ppc-bsc/software/smartcity-compss.git
+RUN git clone https://pat:gc7sMZHxho-jyyFfcQRi@gitlab.bsc.es/ppc/benchmarks/smart-city/smart-city-compss.git
 # # Tracker class project
-# RUN git clone https://github.com/class-euproject/tracker_CLASS.git -b bsc && \
-#     cd tracker_CLASS && \
-#     git submodule update --init --recursive && \
-#     mkdir build  && \
-#     cd build && \
-#     cmake .. -DWITH_MATPLOTLIB=OFF && \
-#     make -j8
-
-RUN mkdir tracker
-COPY tracker ./tracker
-
-RUN cd tracker && \
+RUN git clone https://pat:zn1XXoMgB4896i533XPo@gitlab.bsc.es/ppc/benchmarks/smart-city/tracker.git -b dev && \
+    cd tracker && \
     git submodule update --init --recursive && \
-    cat src/modules.cpp && \
     mkdir build  && \
     cd build && \
     cmake .. -DWITH_MATPLOTLIB=OFF && \
     make -j8
 
-RUN cp /root/tracker/build/track.cpython-36m-aarch64-linux-gnu.so smartcity-compss/lib
+# RUN mkdir tracker
+# COPY tracker ./tracker
+
+RUN ls && cp /root/tracker/build/track.cpython-36m-aarch64-linux-gnu.so smart-city-compss/lib/
 #RUN cp /root/deduplicator/build/deduplicator.cpython-36m-aarch64-linux-gnu.so smartcity-compss/lib
     # cp /root/deduplicator/build/deduplicator.cpython-36m-x86_64-linux-gnu.so . && \
 
-# Copy dataclay.jar from dataclay image
-#TODO: use env variable for version
-COPY --from=bscdataclay/logicmodule:dev20210603-alpine /home/dataclayusr/dataclay/dataclay.jar /root/smartcity-compss/dataclay/dataclay.jar
+
 # RUN mkdir -p /root/data/florencia/batoni/roi/
 # COPY roi/ /root/data/florencia/batoni/roi/
 RUN mkdir -p /root/data 
