@@ -15,7 +15,7 @@ COMPSS_VERSION=2.10
 PYTHON_VERSION=3.6
 TAG=${COMPSS_VERSION}-${PYTHON_VERSION}
 BUILDER=bscppc/compss:${COMPSS_VERSION}
-PREFIX=registry.gitlab.bsc.es/ppc-bsc/software/smartcity-compss/
+PREFIX=registry.gitlab.bsc.es/ppc/benchmarks/smart-city/smartcity-compss/
 PREFIX2=bscppc/
 IMAGE=smartcity-compss
 

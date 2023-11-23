@@ -27,31 +27,34 @@ from geopandas import GeoDataFrame
 from shapely import geometry
 import numpy as np
 
-FPS = 3
+FPS = 25
 
-NUM_ITERS = 18068
+NUM_ITERS = 116013
 NUM_ITERS_POLLUTION = 25
 SNAP_PER_FEDERATION = 15
 N = 5
 NUM_ITERS_FOR_CLEANING = 10000
 CD_PROC = 0
 
-AREA = 'arcipressi'
+AREA = 'idelfons'
 
 BATONI_LOG_OFFSET = 2078
 ARCIPRESSI_LOG_OFFSET = 1512
 RESISTENZA_LOG_OFFSET = 80800
 BSC_LOG_OFFSET = 0
+IDELFONS_LOG_OFFSET = 0 
 
 BATONI_MQTT_FRAME_RATE = 10
 ARCIPRESSI_MQTT_FRAME_RATE = 5
 RESISTENZA_MQTT_FRAME_RATE  = 2
 BSC_MQTT_FRAME_RATE = 5
+IDELFONS_MQTT_FRAME_RATE = 5
 
 ARCIPRESSI_VIDEO_FRAME_NUMBER = 35001
 RESISTENZA_VIDEO_FRAME_NUMBER = 131
 BATONI_VIDEO_FRAME_NUMBER = 522
 BSC_VIDEO_FRAME_NUMBER = 11352
+IDELFONS_VIDEO_FRAME_NUMBER = 116013
 
 
 VIDEO_FRAME_NUMBER = globals()[AREA.upper() + '_VIDEO_FRAME_NUMBER']
@@ -170,14 +173,15 @@ def receive_boxes(socket_ip, dummy):
                 x, y, w, h = struct.unpack_from('ffff', message[offset + double_size * 2 + int_size + 1:offset + double_size * 2
                                                                                 + int_size + 1 + float_size * 4])
                 
-                boxes.append(track.obj_m(north, east, frame_number, ord(obj_class), int(w), int(h), int(x), int(y), 0.0))
+                if (x > 0 and x < 1063 and y > 215 and y < 690): 
+                    boxes.append(track.obj_m(north, east, frame_number, ord(obj_class), int(w), int(h), int(x), int(y), 0.0))
 
-                lat_ur, lon_ur, lat_lr, lon_lr, lat_ll, lon_ll, lat_ul, lon_ul = struct.unpack_from('dddddddd', message[
-                                                                                offset + double_size * 2 + int_size + 1 +
-                                                                                float_size * 4:])
-                # print(f'Receiving box ur: {lat_ur}, {lon_ur} - lr: {lat_lr}, {lon_lr} - ll: {lat_ll}, {lon_ll} -  ul: {lat_ul}, {lon_ul} ')
-                box_coords.append((lat_ur, lon_ur, lat_lr, lon_lr, lat_ll, lon_ll, lat_ul, lon_ul))
-            print('Read processed')
+                    lat_ur, lon_ur, lat_lr, lon_lr, lat_ll, lon_ll, lat_ul, lon_ul = struct.unpack_from('dddddddd', message[
+                                                                                    offset + double_size * 2 + int_size + 1 +
+                                                                                    float_size * 4:])
+                    # print(f'Receiving box ur: {lat_ur}, {lon_ur} - lr: {lat_lr}, {lon_lr} - ll: {lat_ll}, {lon_ll} -  ul: {lat_ul}, {lon_ul} ')
+                    box_coords.append((lat_ur, lon_ur, lat_lr, lon_lr, lat_ll, lon_ll, lat_ul, lon_ul))
+                    print(f'Read processed:', {north}, {east}, {frame_number}, {obj_class}, {x}, {y} ,{w}, {h},{lat_ur}, {lon_ur}, {lat_lr}, {lon_lr}, {lat_ll}, {lon_ll}, {lat_ul}, {lon_ul})
         except socket.error as e:
             no_read = True
             traceback.print_exc()
@@ -525,6 +529,9 @@ def writef(id_cam, ts, iteration, info_for_deduplicator, initTime):
     with open(filename, "a+") as f:
         # for i, tracker in enumerate([t for t in trackers if t.traj[-1].frame == iteration]):
         for i, box in enumerate(info_for_deduplicator):
+            print(f'-- {i}')
+            print(f'-- {box}')
+            print(f'{info_for_deduplicator}')
             lat = info_for_deduplicator[i][0]  # round(info_for_deduplicator[i][0], 14)
             lon = info_for_deduplicator[i][1]  # round(info_for_deduplicator[i][1], 14)
             geohash = pgh.encode(lat, lon, precision=7)
@@ -536,14 +543,14 @@ def writef(id_cam, ts, iteration, info_for_deduplicator, initTime):
             pixel_y = info_for_deduplicator[i][7]  # pixels[tracker.idx][1]
             pixel_w = info_for_deduplicator[i][8]  # OR list_boxes[tracker.idx].x  # pixels[tracker.idx][0]
             pixel_h = info_for_deduplicator[i][9]
-            latT = info_for_deduplicator[i][10]
-            lonT = info_for_deduplicator[i][11]
-            speedT = info_for_deduplicator[i][12]
-            speedF = info_for_deduplicator[i][13]
+            # latT = info_for_deduplicator[i][10]
+            # lonT = info_for_deduplicator[i][11]
+            # speedT = info_for_deduplicator[i][12]
+            # speedF = info_for_deduplicator[i][13]
             # if (inOut):
             #     print(f'Alert of writef for {trackId}')
         
-            f.write(f"{id_cam} {iteration} {ts} {cl} {lat} {lon} {geohash} {speed} {yaw} {id_cam}_{trackId} {pixel_x} {pixel_y} {pixel_w} {pixel_h} {latT} {lonT} {speedT} {speedF}\n")
+            f.write(f"{id_cam} {iteration} {ts} {cl} {lat} {lon} {geohash} {speed} {yaw} {id_cam}_{trackId} {pixel_x} {pixel_y} {pixel_w} {pixel_h}\n")
 
 def writef3(id_cam, ts, frame, list_boxes, info_for_deduplicator, box_coords): 
     pred_info2 = np.zeros((len(list_boxes),11)) 
@@ -748,11 +755,13 @@ def execute_trackers(socket_ips, semantics, kb, mqttClient):
             # frames[index] = frames[index] - ( ((frames[index] -1 ) // VIDEO_FRAME_NUMBER) * VIDEO_FRAME_NUMBER)
             timestamps[index] = i / FPS
             print('Hola')
+            print(info_for_deduplicator)
             trackers_list[index], cur_index[index], info_for_deduplicator[index] = execute_tracking(list_boxes,
                                                                                                     trackers_list[index],
                                                                                                     cur_index[index],
                                                                                                     init_point)
             print('Adios')
+            print(info_for_deduplicator)
             writef(cam_ids[index], timestamps[index], frames[index], info_for_deduplicator[index],initTime)
             if (semantics):
                 # Obtain state of area traffic lights 
