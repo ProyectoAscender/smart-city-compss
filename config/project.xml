@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Project>
-    <MasterNode/>
-    <ComputeNode Name="192.168.121.183">
-        <InstallDir>/opt/COMPSs/</InstallDir>
-        <WorkingDir>/tmp/COMPSsWorker/</WorkingDir>
-        <User>flo01</User>
-    </ComputeNode>
-</Project>

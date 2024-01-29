@@ -148,22 +148,6 @@ def receive_boxes(socket_ip, dummy):
             # This flag serves to know if the video has ended
             cam_id = struct.unpack_from("i", message[1:1 + int_size])[0]
             timestamp = struct.unpack_from("Q", message[1 + int_size:1 + int_size + unsigned_long_size])[0]
-            box_coords = []
-            lat, lon = struct.unpack_from("dd", message[1 + int_size + unsigned_long_size:1 + int_size + unsigned_long_size
-                                                                                        + double_size * 2])
-            print('I have read')
-            #   // box_vector: x,y,w,h (resized)
-            #     // coords: north,east (convertToMeters (unresized)) 
-            #     // bo0xCoords: 4 esquinas coordenadas (convertedToGeo (unresized))
-            #     // corrdsGeo: NO se usa
-            #     collectBoxInfo(cam->detNN->batchDetected, box_vector, coords, coordsGeo, boxCoords, scale_x, scale_y, *cam);
-            #     unsigned int size;
-            #     char *data = prepareMessageUDP(box_vector, coords, boxCoords, n_frame, cam->id,
-            #                                    cam->adfGeoTransform[3], cam->adfGeoTransform[0], // pasamos pto.ref
-            #                                    &size, scale_x, scale_y);
-            # print(range(1 + int_size + unsigned_long_size + double_size * 2, len(message),
-            #                     double_size * 10 + int_size + 1 + float_size * 4))
-            init_point = (lat, lon)
 
             for offset in range(1 + int_size + unsigned_long_size + double_size * 2, len(message),
                                 double_size * 10 + int_size + 1 + float_size * 4):
@@ -172,19 +156,16 @@ def receive_boxes(socket_ip, dummy):
                 # print(f'Receiving frame number: {frame_number}')
                 x, y, w, h = struct.unpack_from('ffff', message[offset + double_size * 2 + int_size + 1:offset + double_size * 2
                                                                                 + int_size + 1 + float_size * 4])
-                
-                if (x > 0 and x < 1063 and y > 215 and y < 690): 
-                    boxes.append(track.obj_m(north, east, frame_number, ord(obj_class), int(w), int(h), int(x), int(y), 0.0))
+            
+                a = np.asarray([], dtype=np.float32)
+                boxes.append(track.obj_m(north, east, frame_number, ord(obj_class), int(w), int(h), int(x), int(y), 0.0))
 
-                    lat_ur, lon_ur, lat_lr, lon_lr, lat_ll, lon_ll, lat_ul, lon_ul = struct.unpack_from('dddddddd', message[
-                                                                                    offset + double_size * 2 + int_size + 1 +
-                                                                                    float_size * 4:])
-                    # print(f'Receiving box ur: {lat_ur}, {lon_ur} - lr: {lat_lr}, {lon_lr} - ll: {lat_ll}, {lon_ll} -  ul: {lat_ul}, {lon_ul} ')
-                    box_coords.append((lat_ur, lon_ur, lat_lr, lon_lr, lat_ll, lon_ll, lat_ul, lon_ul))
-                    print(f'Read processed:', {north}, {east}, {frame_number}, {obj_class}, {x}, {y} ,{w}, {h},{lat_ur}, {lon_ur}, {lat_lr}, {lon_lr}, {lat_ll}, {lon_ll}, {lat_ul}, {lon_ul})
+
+                # print(f'Receiving box ur: {lat_ur}, {lon_ur} - lr: {lat_lr}, {lon_lr} - ll: {lat_ll}, {lon_ll} -  ul: {lat_ul}, {lon_ul} ')
+                print(f'Read processed:', {frame_number}, {obj_class}, {x}, {y} ,{w}, {h})
         except socket.error as e:
             no_read = True
-            traceback.print_exc()
+            serverSocket.close()
 
     serverSocket.close()
     # box_coords: 4 esquinas coordenadas
@@ -480,7 +461,7 @@ def writef_deduplicated(info_deduplicated, iteration):
             pixel_w = info[i][9]  # OR list_boxes[tracker.idx].x  # pixels[tracker.idx][0]
             pixel_h = info[i][10]
 
-            f.write(f"{id_cam} {iteration} {ts} {cl} {lat} {lon} {geohash} {speed} {yaw} {id_cam}_{trackId} {pixel_x} {pixel_y} {pixel_w} {pixel_h}\n")
+            f.write(f"{id_cam} {iteration} {ts} {c8l} {lat} {lon} {geohash} {speed} {yaw} {id_cam}_{trackId} {pixel_x} {pixel_y} {pixel_w} {pixel_h}\n")
 
 @task(id_cam=IN, frame = IN, areaState = IN)
 def writef_state(id_cam, frame, areaState,initTime):

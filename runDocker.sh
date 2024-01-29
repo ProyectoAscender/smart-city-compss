@@ -1,2 +1,0 @@
-#!/bin/bash
-docker run -it --name smartcity01   -p 8885:8885 -p 43001:43001 -p 43002:43002 --net bridge --gpus all -v ~/smartcity-compss:/root/smartcity-compss -v ~/tracker:/root/tracker -v /root/smartcity-compss/lib -v /root/smartcity-compss/dataclay -v /media/b2drop/smartCity:/root/data  registry.gitlab.bsc.es/ppc/benchmarks/smart-city/smart-city-compss:2.10-3.6 /bin/bash

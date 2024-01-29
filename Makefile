@@ -11,19 +11,20 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-COMPSS_VERSION=2.10
-PYTHON_VERSION=3.6
-TAG=${COMPSS_VERSION}-${PYTHON_VERSION}
-BUILDER=bscppc/compss:${COMPSS_VERSION}
-PREFIX=registry.gitlab.bsc.es/ppc/benchmarks/smart-city/smartcity-compss/
-PREFIX2=bscppc/
-IMAGE=smartcity-compss
+COMPSS_VERSION=3.0-heuristics-arm
+PYTHON_VERSION=-
+SMARTCITY_VERSION=1.0
+TAG=${COMPSS_VERSION}-${PYTHON_VERSION}-${SMARTCITY_VERSION}
+BUILDER=registry.gitlab.bsc.es/ppc/software/compss/compss:${COMPSS_VERSION}
+PREFIX=registry.gitlab.bsc.es/ppc/benchmarks/smart-city/
+# PREFIX2=bscppc/
+IMAGE=smart-city-compss
 
 all: push
 
 image:
 	docker build . -f Dockerfile --build-arg ROOT_CONTAINER=$(BUILDER) -t $(PREFIX)$(IMAGE):$(TAG)
-	docker image tag $(PREFIX)$(IMAGE):$(TAG) $(PREFIX2)$(IMAGE):$(TAG)
+# docker image tag $(PREFIX)$(IMAGE):$(TAG) $(PREFIX2)$(IMAGE):$(TAG)
 
 push: image
 #	docker push $(PREFIX2)$(IMAGE):$(TAG)
