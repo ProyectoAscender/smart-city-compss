@@ -22,10 +22,12 @@ class BaseTrack(object):
     score = 0
     start_frame = 0
     frame_id = 0
-    time_since_update = 0
+    frames_since_update = 0
+    speeds = np.empty(0, dtype=float, order='C')
 
     # multi-camera
-    location = (np.inf, np.inf)
+    location = None
+    prev_location = None
 
     @property
     def end_frame(self):

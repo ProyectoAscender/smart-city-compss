@@ -121,6 +121,8 @@ RUN python3 -m pip install -r requirements.txt
 
 # RUN mkdir -p /root/data/florencia/batoni/roi/
 # COPY roi/ /root/data/florencia/batoni/roi/
-RUN mkdir -p /root/data 
+RUN mkdir -p /root/b2drop 
+# Avoid warn message when waiting too much for getting path data from b2drop
+ENV PYDEVD_WARN_EVALUATION_TIMEOUT 30
 # Establishing entrypoint for downloading the stubs and making the image ready at runtime
 # ENTRYPOINT ["./entrypoint.sh"]

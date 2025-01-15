@@ -20,35 +20,34 @@ if str(ROOT + '/trackers' + '/bytetrack') not in sys.path:
 relROOT = Path(os.path.relpath(srcROOT, ROOT))  # relative
 WEIGHTS = relROOT / '/weights'
 
+nl = '\n'
 
-from trackers.multi_tracker_zoo import create_tracker
 import argparse	
+from collections import defaultdict, deque
 
-import time
+import time as tm
+
 import zmq
 import uuid
-
 from datetime import datetime
-
 import ntpath 
-
 from glob import glob
 from os.path import join
 # from tqdm import tqdm
 #############
-import time
 global seen, windows, dt
-
 import os, shutil
 ###############
 
 import numpy as np
 import cv2
 
+from trackers.multi_tracker_zoo import create_tracker
 from src import comm
 from src import utils
 from src.visualize import plot_tracking
 from src.timer import Timer
+from src.viewTransform import ViewTransformer
 
 # EDGE_INFO DEFAULT
 CAM_ID = '1112'
@@ -68,7 +67,8 @@ def parse_opt():
     parser = argparse.ArgumentParser("ByteTrack argument parser!")
     # Parse arguments to accept variable number of "IPs:Ports"
     parser.add_argument("--save_results", type=bool, default=True, help="save tracking results into txt")
-    parser.add_argument('--save_plot', type=bool, default=True, help="plot tracking")
+    parser.add_argument('--save_plot', type=bool, default=False, help="plot tracking")
+    parser.add_argument('--speed', type=bool, default=True, help="Measure speed")
     parser.add_argument("--expn", "--experiment-name", type=str, default= datetime.now().strftime("%m%d%Y_%H%M%S"))
     parser.add_argument('--exp_dir', default=relROOT / '..' / 'runs' / 'exp', help='experiment directory')
     # parser.add_argument("--mqtt_wait", nargs='?', const=True, type=str2bool, default=False)  # True as default
@@ -107,15 +107,14 @@ def run(source=None,
         exp_dir = None,
         expn = None,
         save_results = True,
-        save_plot = True,
+        save_plot = False,
+        speed = True,
         edge_ips = [] # <- sobra?
 ):
 
-
     # source = str(source)
     is_file = Path(opt.source).suffix[1:] in (['mp4', 'avi'])
-
-    start_time = time.time()
+    start_time = tm.time()
     initTime = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
 
     # Create as many track instances as there are video sources
@@ -124,7 +123,7 @@ def run(source=None,
     print(f'- Creating tracker for {opt.source} - ')
     tracker = create_tracker(tracking_method, tracking_config, reid_weights)
     tracker_list.append(tracker, )
-    
+
     ## BINDING UDP:
     # Let camera edge start
     print('UDP handshaking')
@@ -135,14 +134,32 @@ def run(source=None,
     serverSocket, edgeInfo = comm.set_socket(opt.source)
 
 
-    ## EDGE INFO:
+    ## GET EDGE INFO:
     edgeInfo = (str(edgeInfo)).split('|')
     CAM_ID, GSTREAMER, NUM_ITERS, CAM_HEIGHT, CAM_WIDTH, DATA_PATH = edgeInfo[1:]
     GSTREAMER = int(GSTREAMER)
     NUM_ITERS = int(NUM_ITERS)
     CAM_HEIGHT = 720
     CAM_WIDTH = 1280
+    if (GSTREAMER == 0):
+        DATA_PATH = DATA_PATH.replace("'", "")
+        videoPath = os.path.join(*(DATA_PATH.split(os.path.sep)[2:]))
+        DATA_PATH = os.path.join(*(DATA_PATH.split(os.path.sep)[3:-2]))
+        # Getting city and area data path
+        CITY = DATA_PATH.split(os.path.sep)[0]
+        AREA = DATA_PATH.split(os.path.sep)[1]
+        videoPath = os.path.join( 'data', videoPath)
+        DATA_PATH = os.path.join( 'data', DATA_PATH)
+        PMAT_PATH = utils.find_files_by_strings(os.path.join(DATA_PATH, 'pmat'), CAM_ID, "ACTIVE")[0]
+    else:
+        pass
+        
+        
+    # Load pmat
+    view_transformer = ViewTransformer(pmatPath = PMAT_PATH)
+
     if (GSTREAMER == 0): print(DATA_PATH) 
+
     # Initializing list to store tracker data
     results = []
     # alternative: results = [None] * NUM_ITERS
@@ -154,9 +171,10 @@ def run(source=None,
     test_size = (img_info[0], img_info[1]) # We don't want to re-scale yet
 
     if save_plot:
-        a = (DATA_PATH.replace("'", "") if GSTREAMER == 0 else CAM_ID)
-        print(f'{a}')
-        cap = cv2.VideoCapture(a) # TO - DO: else con gstreamer
+        # Get path to get frames, removing edge source video b2drop root 
+        videoPath = os.path.join( 'data/', videoPath)
+        print(f'{videoPath}')
+        cap = cv2.VideoCapture(videoPath) # TO - DO: else con gstreamer
         vid_fps = cap.get(cv2.CAP_PROP_FPS)
         FPS = vid_fps if int(vid_fps) > 0 else DEFAULT_FPS
         # Prepare video output
@@ -169,11 +187,12 @@ def run(source=None,
 
     ## LOOP ITERATING FRAMES:
     frame_idx = 1
-    timer = Timer()
-    print(f'--------------NUM_ITERS:   {NUM_ITERS}')
+    timer_track = Timer()
+    # coordinates = defaultdict(lambda: deque(maxlen=FPS if FPS is not None else DEFAULT_FPS))
+    
     while frame_idx < 2000:
 
-        timer.tic()
+        timer_track.tic()
         timestamp = frame_idx / tracker_list[0].args.frame_rate
         print(f'Reading data of frame {frame_idx} - timestamp: {timestamp}')
 
@@ -181,10 +200,15 @@ def run(source=None,
         comm.setAck_socket(serverSocket, opt.source)
         frameData = list(comm.read_udp(serverSocket)) # iterator to npArray
         # [box[-6:] for box in frameData]
+        print(type(frameData))
+        print((frameData))
+
 
         # Detections to numpy array [x,y,w,h,score,classId]
         det = np.asarray([box[-6:-1] for box in frameData])  # by now,without classId
 
+        ## TRACKING
+        
         if det is not None:
 
             # Update tracker
@@ -194,6 +218,7 @@ def run(source=None,
             online_tlwhs = []
             online_ids = []
             online_scores = []
+            online_speeds = []
             for t in online_targets:
                 tlwh = t.tlwh
                 tid = t.track_id
@@ -205,28 +230,68 @@ def run(source=None,
                         f"{frame_idx},{tid},{tlwh[0]:.2f},{tlwh[1]:.2f},{tlwh[2]:.2f},{tlwh[3]:.2f},{t.score:.2f},-1,-1,-1\n"
                     )
 
-            timer.toc()
+            timer_track.toc()
+
+            if (speed):
+                for t in online_targets:
+                    # Update tracklet latest 2 locations
+                    mapPoints = view_transformer.transform_points(points = t.to_bc()[0:2])#.astype(int)
+                    if t.location is not None: 
+                        t.prev_location = t.location
+                        t.location = mapPoints
+                        # Calculate speed
+                        distance = np.square(np.sum((np.power(abs(t.location - t.prev_location),2))))
+                        time = 1 / (FPS if "FPS" in vars() else DEFAULT_FPS)
+                        speed = (distance / time) * 3.6
+                        t.speeds = np.append(t.speeds, speed)
+                        online_speeds.append(f"#{t.track_id} {t.speeds[-1].astype(int)} km/h /n") # 
+                        print(online_speeds)
+                    else:
+                        t.location = mapPoints
+
+
+
+
+                    # online_speeds.append()
+
 
             if save_plot:
                 ret, frame = cap.read()
                 if not ret:
                     break
                 online_im = plot_tracking(
-                    frame, online_tlwhs, online_ids, frame_id=frame_idx, fps=1. / timer.average_time
+                    frame, online_tlwhs, online_ids, frame_id=frame_idx, fps=1. / timer_track.average_time
                 )
                 vid_writer.write(online_im)
 
         else:
-            timer.toc()
+            timer_track.toc()
 
             if save_plot:
                 ret, frame = cap.read()
                 online_im = frame
                 print('Using original frame...')
 
-        print(f'Ending iter of frame {frame_idx} - Timestamp {timestamp}')
         if frame_idx % 10 == 0:
-            print(f'Processing frame {frame_idx} - Avg. Time: {timer.average_time}')
+            print(f'Processing frame {frame_idx} - Avg. Time: {timer_track.average_time}')
+
+
+        # SPEED CALCULATION
+            #   detections = [STrack(tlwh, s) for
+        #     #               (tlwh, s) in zip(dets, scores_keep)]
+        
+        # if det is not None:    
+        #     
+            
+        #       for tracker_id, [_, y] in zip(detections.tracker_id, points):
+        #         coordinates[tracker_id].append(y)
+        
+        
+        
+
+
+
+
 
         frame_idx += 1
 

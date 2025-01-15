@@ -61,9 +61,15 @@ def read_udp(serverSocket):
             # By now, data is class bytes, but hexadecimal representation with more 
             # length than it should be.
             dataB = bytes.fromhex(data.decode())
+            print('-----')
+            print(data.decode())
+            print('-----')
+            print(dataB)
 
             # format: flag, cam_id , n_frame, timestamp , box_x, box_y, box_w, box_h, score, class
-            format_string = ">?hhQhhhhfh"
+            format_string = ">?4shQhhhhfh"
+            format_string = ">?4shQhhhh"
+
             expected_size = struct.calcsize(format_string)
             assert (buffer_size % expected_size) == 0, \
                 f'Wrong input buffer length:  {buffer_size} . Expected multiple by: {expected_size} '

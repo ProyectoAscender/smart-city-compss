@@ -52,6 +52,8 @@ class STrack(BaseTrack):
         self.state = TrackState.Tracked
         if frame_id == 1:
             self.is_activated = True
+        self.frames_since_update = 0
+
         # self.is_activated = True
         self.frame_id = frame_id
         self.start_frame = frame_id
@@ -61,6 +63,8 @@ class STrack(BaseTrack):
             self.mean, self.covariance, self.tlwh_to_xyah(new_track.tlwh)
         )
         self.tracklet_len = 0
+        self.frames_since_update = 0
+
         self.state = TrackState.Tracked
         self.is_activated = True
         self.frame_id = frame_id
@@ -78,6 +82,7 @@ class STrack(BaseTrack):
         """
         self.frame_id = frame_id
         self.tracklet_len += 1
+        self.frames_since_update = 0
 
         new_tlwh = new_track.tlwh
         self.mean, self.covariance = self.kalman_filter.update(
@@ -120,6 +125,20 @@ class STrack(BaseTrack):
         ret[:2] += ret[2:] / 2
         ret[2] /= ret[3]
         return ret
+    
+    @staticmethod
+    # @jit(nopython=True)
+    def tlwh_to_bc(tlwh):
+        """Convert bounding box to format `(center x, bottom y, width,
+        height)`
+        """
+        ret = np.asarray(tlwh).copy()
+        ret[0] += ret[2] / 2
+        ret[1] += ret[3] 
+        return ret
+
+    def to_bc(self):
+        return self.tlwh_to_bc(self.tlwh)
 
     def to_xyah(self):
         return self.tlwh_to_xyah(self.tlwh)
@@ -248,6 +267,7 @@ class BYTETracker(object):
             track = r_tracked_stracks[it]
             if not track.state == TrackState.Lost:
                 track.mark_lost()
+                track.frames_since_update += 1
                 lost_stracks.append(track)
 
         '''Deal with unconfirmed tracks, usually tracks with only one beginning frame'''
@@ -261,6 +281,7 @@ class BYTETracker(object):
             activated_starcks.append(unconfirmed[itracked])
         for it in u_unconfirmed:
             track = unconfirmed[it]
+            track.frames_since_update += 1
             track.mark_removed()
             removed_stracks.append(track)
 
@@ -270,6 +291,7 @@ class BYTETracker(object):
             if track.score < self.det_thresh:
                 continue
             track.activate(self.kalman_filter, self.frame_id)
+            
             activated_starcks.append(track)
         """ Step 5: Update state"""
         for track in self.lost_stracks:

@@ -1,4 +1,5 @@
 import os
+import glob
 import sys
 from pathlib import Path
 
@@ -44,5 +45,19 @@ def classNames(classInt):
             3: 'Bus',
             4: 'Motorbike',
             5: 'Bike'}.get(classInt, None)
+
+def find_files_by_strings(folder_path, string1, string2):
+    matching_files = []
+    # Iterate through each file in the folder
+    for filename in os.listdir(folder_path):
+        # Check if both strings are present in the file name
+        if string1 in filename and string2 in filename:
+            print(f'Found active pmat {filename}')
+            # If both strings are present, add the file to the list
+            matching_files.append(os.path.join(folder_path, filename))
+        else:
+            print(f'Not found {string1} and {string2} in {filename}')
+    return matching_files
+
 
 
