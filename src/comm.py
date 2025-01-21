@@ -57,18 +57,17 @@ def read_udp(serverSocket):
             print(f'UDP data received with length: {buffer_size}')
             if len(data) > 0: reading = False
             print(f'Length data received {len(data)}')
-            print(f'I have read: \n {data}')
+            # print(f'I have read: \n {data}')
             # By now, data is class bytes, but hexadecimal representation with more 
             # length than it should be.
             dataB = bytes.fromhex(data.decode())
             print('-----')
-            print(data.decode())
-            print('-----')
-            print(dataB)
+            # print(data.decode())
+            # print('-----')
+            # print(dataB)
 
             # format: flag, cam_id , n_frame, timestamp , box_x, box_y, box_w, box_h, score, class
             format_string = ">?4shQhhhhfh"
-            format_string = ">?4shQhhhh"
 
             expected_size = struct.calcsize(format_string)
             assert (buffer_size % expected_size) == 0, \
@@ -76,6 +75,18 @@ def read_udp(serverSocket):
 
 
             unpacked_data = struct.iter_unpack(format_string, dataB)
+            # The camera id is saved as bytes (and not string) as this is the expected behaviour from this library
+            # To have it as string, we need to recast the variable
+            # for i, item in enumerate(unpacked_data, start=1):
+            #     flag, cam_id, n_frame, timestamp, box_x, box_y, box_w, box_h, *optional = item
+            #     cam_id = cam_id.decode('utf-8')  # Decode bytes to string
+            #     score, cls = optional if len(optional) == 2 else (None, None)
+                
+            #     print(f"Box {i}: Flag: {flag}, Camera ID: {cam_id}, Frame: {n_frame}, "
+            #         f"Timestamp: {timestamp}, Box - x: {box_x}, y: {box_y}, w: {box_w}, h: {box_h}, "
+            #         f"Score: {score}, Class: {cls}")
+                
+                
 
         except socket.error as e:
             reading = True

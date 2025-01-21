@@ -139,27 +139,25 @@ def run(source=None,
     CAM_ID, GSTREAMER, NUM_ITERS, CAM_HEIGHT, CAM_WIDTH, DATA_PATH = edgeInfo[1:]
     GSTREAMER = int(GSTREAMER)
     NUM_ITERS = int(NUM_ITERS)
-    CAM_HEIGHT = 720
-    CAM_WIDTH = 1280
-    if (GSTREAMER == 0):
-        DATA_PATH = DATA_PATH.replace("'", "")
-        videoPath = os.path.join(*(DATA_PATH.split(os.path.sep)[2:]))
-        DATA_PATH = os.path.join(*(DATA_PATH.split(os.path.sep)[3:-2]))
-        # Getting city and area data path
-        CITY = DATA_PATH.split(os.path.sep)[0]
-        AREA = DATA_PATH.split(os.path.sep)[1]
-        videoPath = os.path.join( 'data', videoPath)
-        DATA_PATH = os.path.join( 'data', DATA_PATH)
-        PMAT_PATH = utils.find_files_by_strings(os.path.join(DATA_PATH, 'pmat'), CAM_ID, "ACTIVE")[0]
-    else:
-        pass
-        
+    CAM_HEIGHT = int(CAM_HEIGHT)
+    CAM_WIDTH = int(CAM_WIDTH)
+    # if (GSTREAMER == 0):
+    DATA_PATH = DATA_PATH.replace("'", "")
+    DATA_PATH = os.path.join(*(DATA_PATH.split(os.path.sep)[3:-1]))
+    videoPath = os.path.join( 'data', DATA_PATH, "videos/20230721_092248_cam01h264.mp4")
+    # Getting city and area data path
+    CITY = DATA_PATH.split(os.path.sep)[0]
+    AREA = DATA_PATH.split(os.path.sep)[1]
+    DATA_PATH = os.path.join( 'data', DATA_PATH)
+    PMAT_PATH = utils.find_files_by_strings(os.path.join(DATA_PATH, 'pmat'), CAM_ID, "ACTIVE")[0]
+       
         
     # Load pmat
-    view_transformer = ViewTransformer(pmatPath = PMAT_PATH)
-
-    if (GSTREAMER == 0): print(DATA_PATH) 
-
+    # view_transformer = ViewTransformer(pmatPath = PMAT_PATH)
+    os.system('cp ' + PMAT_PATH + ' ./pmat.txt')
+    view_transformer = ViewTransformer(pmatPath = 'pmat.txt')
+    
+    
     # Initializing list to store tracker data
     results = []
     # alternative: results = [None] * NUM_ITERS
@@ -172,9 +170,8 @@ def run(source=None,
 
     if save_plot:
         # Get path to get frames, removing edge source video b2drop root 
-        videoPath = os.path.join( 'data/', videoPath)
         print(f'{videoPath}')
-        cap = cv2.VideoCapture(videoPath) # TO - DO: else con gstreamer
+        cap = cv2.VideoCapture('./20230721_092248_cam01h264.mp4') # TO - DO: else con gstreamer
         vid_fps = cap.get(cv2.CAP_PROP_FPS)
         FPS = vid_fps if int(vid_fps) > 0 else DEFAULT_FPS
         # Prepare video output
@@ -190,22 +187,35 @@ def run(source=None,
     timer_track = Timer()
     # coordinates = defaultdict(lambda: deque(maxlen=FPS if FPS is not None else DEFAULT_FPS))
     
-    while frame_idx < 2000:
+    while frame_idx < 200:
 
         timer_track.tic()
-        timestamp = frame_idx / tracker_list[0].args.frame_rate
-        print(f'Reading data of frame {frame_idx} - timestamp: {timestamp}')
+        # timestamp = frame_idx / tracker_list[0].args.frame_rate
+        # print(f'Reading data of frame {frame_idx} - timestamp: {timestamp}')
 
         # Reading udp data
         comm.setAck_socket(serverSocket, opt.source)
         frameData = list(comm.read_udp(serverSocket)) # iterator to npArray
         # [box[-6:] for box in frameData]
-        print(type(frameData))
-        print((frameData))
+        # print(type(frameData))
+        # print((frameData))
 
-
+        # tm.sleep(3)
         # Detections to numpy array [x,y,w,h,score,classId]
+        # det = np.asarray([box[-6:-1] for box in frameData])  # by now,without classId
         det = np.asarray([box[-6:-1] for box in frameData])  # by now,without classId
+        frameId = frameData[0][2]
+        ts = frameData[0][3]
+        
+        print(f"Processing Frame: {frameId} with timestamp: {ts}")
+        
+        if frameId != frame_idx:
+            print("Some frames are missing!! Camera-edge is not waiting for smartcity!")
+            break
+
+        # array_1, array_2 = zip(*[(box[-6:-1], box[2:3]) for box in frameData])
+        # det = np.asarray(array_1)
+        # frameid_timestamp = np.asarray(array_2)
 
         ## TRACKING
         
@@ -219,7 +229,7 @@ def run(source=None,
             online_ids = []
             online_scores = []
             online_speeds = []
-            for t in online_targets:
+            for i, t in enumerate(online_targets):
                 tlwh = t.tlwh
                 tid = t.track_id
                 if tlwh[2] * tlwh[3] > min_box_area: 
@@ -227,7 +237,7 @@ def run(source=None,
                     online_ids.append(tid)
                     online_scores.append(t.score)
                     results.append(
-                        f"{frame_idx},{tid},{tlwh[0]:.2f},{tlwh[1]:.2f},{tlwh[2]:.2f},{tlwh[3]:.2f},{t.score:.2f},-1,-1,-1\n"
+                        f"{frameId},{ts},{tid},{tlwh[0]:.2f},{tlwh[1]:.2f},{tlwh[2]:.2f},{tlwh[3]:.2f},{t.score:.2f},-1,-1,-1\n"
                     )
 
             timer_track.toc()
@@ -260,20 +270,23 @@ def run(source=None,
                 if not ret:
                     break
                 online_im = plot_tracking(
-                    frame, online_tlwhs, online_ids, frame_id=frame_idx, fps=1. / timer_track.average_time
+                    frame, online_tlwhs, online_ids, frame_id=frameId, fps=1. / timer_track.average_time
                 )
                 vid_writer.write(online_im)
 
         else:
             timer_track.toc()
-
+        
+        
             if save_plot:
                 ret, frame = cap.read()
                 online_im = frame
                 print('Using original frame...')
 
+        
         if frame_idx % 10 == 0:
             print(f'Processing frame {frame_idx} - Avg. Time: {timer_track.average_time}')
+            timer_track.clear()
 
 
         # SPEED CALCULATION
@@ -297,6 +310,7 @@ def run(source=None,
 
     if save_results:
         res_file = join(exp_dir, LOG_OUT_NAME)
+        print(f"Savedir: {res_file}")
         with open(res_file, 'w') as f:
             f.writelines(results)
         print(f"save results to {res_file}")
@@ -308,7 +322,7 @@ def run(source=None,
 
 
 
-    print(results)
+    # print(results)
 
   
     
