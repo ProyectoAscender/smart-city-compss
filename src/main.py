@@ -149,12 +149,13 @@ def run(source=None,
     CITY = DATA_PATH.split(os.path.sep)[0]
     AREA = DATA_PATH.split(os.path.sep)[1]
     DATA_PATH = os.path.join( 'data', DATA_PATH)
-    PMAT_PATH = utils.find_files_by_strings(os.path.join(DATA_PATH, 'pmat'), CAM_ID, "ACTIVE")[0]
-       
-        
+    # PMAT_PATH = utils.find_files_by_strings(os.path.join(DATA_PATH, 'pmat'), CAM_ID, "ACTIVE")[0]
+    
+    # B2DROP IS NOT BEING USED DUE TO VERY LONG LOADING TIMES. SHOULD BE RE-ACTIVATED.   
+    
     # Load pmat
     # view_transformer = ViewTransformer(pmatPath = PMAT_PATH)
-    os.system('cp ' + PMAT_PATH + ' ./pmat.txt')
+    # os.system('cp ' + PMAT_PATH + ' ./pmat.txt')
     view_transformer = ViewTransformer(pmatPath = 'pmat.txt')
     
     
@@ -187,7 +188,7 @@ def run(source=None,
     timer_track = Timer()
     # coordinates = defaultdict(lambda: deque(maxlen=FPS if FPS is not None else DEFAULT_FPS))
     
-    while frame_idx < 200:
+    while frame_idx < 2000:
 
         timer_track.tic()
         # timestamp = frame_idx / tracker_list[0].args.frame_rate
@@ -210,8 +211,8 @@ def run(source=None,
         print(f"Processing Frame: {frameId} with timestamp: {ts}")
         
         if frameId != frame_idx:
-            print("Some frames are missing!! Camera-edge is not waiting for smartcity!")
-            break
+            print(f"{frameId - frame_idx} frames are missing!! Camera-edge is not waiting for smartcity!")
+            # break
 
         # array_1, array_2 = zip(*[(box[-6:-1], box[2:3]) for box in frameData])
         # det = np.asarray(array_1)
