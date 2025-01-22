@@ -49,6 +49,8 @@ from src.visualize import plot_tracking
 from src.timer import Timer
 from src.viewTransform import ViewTransformer
 
+from src import comm_zmq
+
 # EDGE_INFO DEFAULT
 CAM_ID = '1112'
 NCAMS = 1
@@ -94,8 +96,7 @@ def parse_opt():
 #         self.xyxy = xyxys
 #         self.cls = cls
 
-def run(source=None,
-        model=None,
+def run(zmq_endpoints=None,
         track_thresh = None,
         track_buffer = None,
         match_thresh = None,
@@ -112,63 +113,79 @@ def run(source=None,
         edge_ips = [] # <- sobra?
 ):
 
-    # source = str(source)
-    is_file = Path(opt.source).suffix[1:] in (['mp4', 'avi'])
-    start_time = tm.time()
-    initTime = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-
+    
     # Create as many track instances as there are video sources
     # TO - DO : si cada run se paraleliza para cada vídeo, aqui no paralelizamos nada, pero podriamos tener mas de un tracker para solo una camara -> approach paddle padlle
     tracker_list = []
-    print(f'- Creating tracker for {opt.source} - ')
+    # print(f'- Creating tracker for {opt.source} - ')
     tracker = create_tracker(tracking_method, tracking_config, reid_weights)
     tracker_list.append(tracker, )
+    
+    
+    
+    # Prepare storage for bounding-box results
+    results = []
 
-    ## BINDING UDP:
-    # Let camera edge start
-    print('UDP handshaking')
-    comm.camera_edge_handshake(opt.source)
+    # We'll store references to ZeroMQ SUB sockets here if multiple cameras
+    sub_sockets = []
+    sub_contexts = []
+    
+    # 1) For each endpoint, do handshake, connect SUB
+    for endpoint in zmq_endpoints:
+        print(f"[main.py] Handling endpoint: {endpoint}")
+        # parse "host:port"
+        host, port_str = endpoint.split(":")
+        port = int(port_str)
 
-    ## SET SOCKET, GET EDGE INFO
-    print('UDP Setting socket')
-    serverSocket, edgeInfo = comm.set_socket(opt.source)
+        # Step 1: handshake to get camera info
+        info = comm_zmq.handshake_and_get_info(f"{host}:{port}")
+        print(f"[main.py] Camera info: {info}")
 
+        # GET EDGE INFO:
+        CAM_ID = int(info["cam_id"])
+        GSTREAMER = int(info["gstreamer"])
+        NUM_ITERS = int(info["frames_to_process"])
+        CAM_HEIGHT = int(info["cam_height"])
+        CAM_WIDTH  = int(info["cam_width"])
+        DATA_PATH = info["data_path"].replace("'", "")
+        DATA_PATH = os.path.join(*(DATA_PATH.split(os.path.sep)[3:-1]))
+        videoPath = os.path.join( 'data', DATA_PATH, "videos/20230721_092248_cam01h264.mp4")
+        CITY = DATA_PATH.split(os.path.sep)[0]
+        AREA = DATA_PATH.split(os.path.sep)[1]
+        DATA_PATH = os.path.join( 'data', DATA_PATH)
 
-    ## GET EDGE INFO:
-    edgeInfo = (str(edgeInfo)).split('|')
-    CAM_ID, GSTREAMER, NUM_ITERS, CAM_HEIGHT, CAM_WIDTH, DATA_PATH = edgeInfo[1:]
-    GSTREAMER = int(GSTREAMER)
-    NUM_ITERS = int(NUM_ITERS)
-    CAM_HEIGHT = int(CAM_HEIGHT)
-    CAM_WIDTH = int(CAM_WIDTH)
-    # if (GSTREAMER == 0):
-    DATA_PATH = DATA_PATH.replace("'", "")
-    DATA_PATH = os.path.join(*(DATA_PATH.split(os.path.sep)[3:-1]))
-    videoPath = os.path.join( 'data', DATA_PATH, "videos/20230721_092248_cam01h264.mp4")
-    # Getting city and area data path
-    CITY = DATA_PATH.split(os.path.sep)[0]
-    AREA = DATA_PATH.split(os.path.sep)[1]
-    DATA_PATH = os.path.join( 'data', DATA_PATH)
+        # Step 2: connect SUB on port+1
+        pub_port = port + 1
+        sub_addr = f"tcp://{host}:{pub_port}"
+        print(f"[main.py] Subscribing to bounding boxes at {sub_addr}")
+
+        ctx = zmq.Context()
+        sub_socket = ctx.socket(zmq.SUB)
+        sub_socket.connect(sub_addr)
+        sub_socket.setsockopt_string(zmq.SUBSCRIBE, info["cam_id"])  # filter by camera ID
+        # If you want to subscribe to all cameras, do SUBSCRIBE, ""
+
+        sub_sockets.append(sub_socket)
+        sub_contexts.append(ctx)
+        
+    
+    # Load Pmat (this works assuming 1 edge camera)
     # PMAT_PATH = utils.find_files_by_strings(os.path.join(DATA_PATH, 'pmat'), CAM_ID, "ACTIVE")[0]
-    
-    # B2DROP IS NOT BEING USED DUE TO VERY LONG LOADING TIMES. SHOULD BE RE-ACTIVATED.   
-    
+        
     # Load pmat
     # view_transformer = ViewTransformer(pmatPath = PMAT_PATH)
     # os.system('cp ' + PMAT_PATH + ' ./pmat.txt')
     view_transformer = ViewTransformer(pmatPath = 'pmat.txt')
     
-    
-    # Initializing list to store tracker data
-    results = []
-    # alternative: results = [None] * NUM_ITERS
-    #[ 0: Height, 1: width]
     img_info = [CAM_HEIGHT, CAM_WIDTH]
-    # Original version of bytetrack re-scales boxes to original img_info values:
-    #   test_size = (args.tsize, args.tsize) 
-    #   tsize are values from original yolo model resolution
     test_size = (img_info[0], img_info[1]) # We don't want to re-scale yet
 
+    
+    
+    
+    
+    
+    # Optinal saving video stuff
     if save_plot:
         # Get path to get frames, removing edge source video b2drop root 
         print(f'{videoPath}')
@@ -183,131 +200,142 @@ def run(source=None,
         vid_writer = cv2.VideoWriter(out_path, fourcc, FPS, (CAM_WIDTH, CAM_HEIGHT))
 
 
+    # 5) Start receiving bounding boxes from each SUB socket
+    # We'll do a round-robin poll or a simple approach reading from any socket
+    poller = zmq.Poller()
+    for s in sub_sockets:
+        poller.register(s, zmq.POLLIN)
+
+    print("[main.py] Ready to receive bounding boxes...")
+
+
+
     ## LOOP ITERATING FRAMES:
-    frame_idx = 1
+    frame_idx = 0
     timer_track = Timer()
-    # coordinates = defaultdict(lambda: deque(maxlen=FPS if FPS is not None else DEFAULT_FPS))
+    first_no_socks = 0
+    max_await = 5
+
     
-    while frame_idx < 2000:
-
-        timer_track.tic()
-        # timestamp = frame_idx / tracker_list[0].args.frame_rate
-        # print(f'Reading data of frame {frame_idx} - timestamp: {timestamp}')
-
-        # Reading udp data
-        comm.setAck_socket(serverSocket, opt.source)
-        frameData = list(comm.read_udp(serverSocket)) # iterator to npArray
-        # [box[-6:] for box in frameData]
-        # print(type(frameData))
-        # print((frameData))
-
-        # tm.sleep(3)
-        # Detections to numpy array [x,y,w,h,score,classId]
-        # det = np.asarray([box[-6:-1] for box in frameData])  # by now,without classId
-        det = np.asarray([box[-6:-1] for box in frameData])  # by now,without classId
-        frameId = frameData[0][2]
-        ts = frameData[0][3]
-        
-        print(f"Processing Frame: {frameId} with timestamp: {ts}")
-        
-        if frameId != frame_idx:
-            print(f"{frameId - frame_idx} frames are missing!! Camera-edge is not waiting for smartcity!")
-            # break
-
-        # array_1, array_2 = zip(*[(box[-6:-1], box[2:3]) for box in frameData])
-        # det = np.asarray(array_1)
-        # frameid_timestamp = np.asarray(array_2)
-
-        ## TRACKING
-        
-        if det is not None:
-
-            # Update tracker
-            online_targets = tracker_list[0].update(det, img_info, test_size)
-
-            # Collect and write results
-            online_tlwhs = []
-            online_ids = []
-            online_scores = []
-            online_speeds = []
-            for i, t in enumerate(online_targets):
-                tlwh = t.tlwh
-                tid = t.track_id
-                if tlwh[2] * tlwh[3] > min_box_area: 
-                    online_tlwhs.append(tlwh)
-                    online_ids.append(tid)
-                    online_scores.append(t.score)
-                    results.append(
-                        f"{frameId},{ts},{tid},{tlwh[0]:.2f},{tlwh[1]:.2f},{tlwh[2]:.2f},{tlwh[3]:.2f},{t.score:.2f},-1,-1,-1\n"
-                    )
-
-            timer_track.toc()
-
-            if (speed):
-                for t in online_targets:
-                    # Update tracklet latest 2 locations
-                    mapPoints = view_transformer.transform_points(points = t.to_bc()[0:2])#.astype(int)
-                    if t.location is not None: 
-                        t.prev_location = t.location
-                        t.location = mapPoints
-                        # Calculate speed
-                        distance = np.square(np.sum((np.power(abs(t.location - t.prev_location),2))))
-                        time = 1 / (FPS if "FPS" in vars() else DEFAULT_FPS)
-                        speed = (distance / time) * 3.6
-                        t.speeds = np.append(t.speeds, speed)
-                        online_speeds.append(f"#{t.track_id} {t.speeds[-1].astype(int)} km/h /n") # 
-                        print(online_speeds)
-                    else:
-                        t.location = mapPoints
-
-
-
-
-                    # online_speeds.append()
-
-
-            if save_plot:
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                online_im = plot_tracking(
-                    frame, online_tlwhs, online_ids, frame_id=frameId, fps=1. / timer_track.average_time
-                )
-                vid_writer.write(online_im)
-
-        else:
-            timer_track.toc()
-        
-        
-            if save_plot:
-                ret, frame = cap.read()
-                online_im = frame
-                print('Using original frame...')
-
-        
-        if frame_idx % 10 == 0:
-            print(f'Processing frame {frame_idx} - Avg. Time: {timer_track.average_time}')
-            timer_track.clear()
-
-
-        # SPEED CALCULATION
-            #   detections = [STrack(tlwh, s) for
-        #     #               (tlwh, s) in zip(dets, scores_keep)]
-        
-        # if det is not None:    
-        #     
-            
-        #       for tracker_id, [_, y] in zip(detections.tracker_id, points):
-        #         coordinates[tracker_id].append(y)
-        
-        
-        
-
-
-
-
-
+    # We loop indefinitely or until some condition
+    while frame_idx < NUM_ITERS:
         frame_idx += 1
+        
+        # poll all sub sockets
+        socks = dict(poller.poll(timeout=2000))  # 2s poll
+        if not socks:
+            if(first_no_socks ==  0):
+                first_no_socks = frame_idx
+            if frame_idx - first_no_socks <= max_await:
+                print("[main.py] No data in 2s, continuing...")
+                continue
+            else:
+                print("[main.py] Waited for too long, dropping connection...")
+                break
+
+        for i, sub_socket in enumerate(sub_sockets):
+            if sub_socket in socks and socks[sub_socket] == zmq.POLLIN:
+                # 2-part message: [topic=camera_id, data=hex_string]
+                parts = sub_socket.recv_multipart()
+                if len(parts) != 2:
+                    continue
+
+                camera_id = parts[0].decode('utf-8', errors='ignore')
+                hex_data  = parts[1]
+
+                
+                timer_track.tic()
+
+                
+                frameData = list(comm_zmq.decode_hex_bboxes(hex_data))  # implement in comm_zmq.py
+                
+                # Detections to numpy array [x,y,w,h,score,classId]
+                det = np.asarray([box[-6:-1] for box in frameData])  # by now,without classId
+                
+                frameId = frameData[0][2]
+                ts = frameData[0][3]
+
+                
+                # print(f"Processing Frame: {frameId} with timestamp: {ts}")
+                
+                if frameId != frame_idx:
+                    print(f"{frameId - frame_idx} frames are missing!! Camera-edge is not waiting for smartcity!")
+                    # break
+
+
+                ## TRACKING
+        
+                if det is not None:
+
+                    # Update tracker
+                    online_targets = tracker_list[0].update(det, img_info, test_size)
+
+                    # Collect and write results
+                    online_tlwhs = []
+                    online_ids = []
+                    online_scores = []
+                    online_speeds = []
+                    for i, t in enumerate(online_targets):
+                        tlwh = t.tlwh
+                        tid = t.track_id
+                        if tlwh[2] * tlwh[3] > min_box_area: 
+                            online_tlwhs.append(tlwh)
+                            online_ids.append(tid)
+                            online_scores.append(t.score)
+                            results.append(
+                                f"{frameId},{ts},{tid},{tlwh[0]:.2f},{tlwh[1]:.2f},{tlwh[2]:.2f},{tlwh[3]:.2f},{t.score:.2f},-1,-1,-1\n"
+                            )
+
+                    timer_track.toc()
+
+                    if (speed):
+                        for t in online_targets:
+                            # Update tracklet latest 2 locations
+                            mapPoints = view_transformer.transform_points(points = t.to_bc()[0:2])#.astype(int)
+                            if t.location is not None: 
+                                t.prev_location = t.location
+                                t.location = mapPoints
+                                # Calculate speed
+                                distance = np.square(np.sum((np.power(abs(t.location - t.prev_location),2))))
+                                time = 1 / (FPS if "FPS" in vars() else DEFAULT_FPS)
+                                speed = (distance / time) * 3.6
+                                t.speeds = np.append(t.speeds, speed)
+                                online_speeds.append(f"#{t.track_id} {t.speeds[-1].astype(int)} km/h /n") # 
+                                print(online_speeds)
+                            else:
+                                t.location = mapPoints
+
+
+
+
+                            # online_speeds.append()
+
+                
+                
+                if save_plot:
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
+                    online_im = plot_tracking(
+                        frame, online_tlwhs, online_ids, frame_id=frameId, fps=1. / timer_track.average_time
+                    )
+                    vid_writer.write(online_im)
+
+            else:
+                timer_track.toc()
+            
+            
+                if save_plot:
+                    ret, frame = cap.read()
+                    online_im = frame
+                    print('Using original frame...')
+
+            
+            if frame_idx % 10 == 0:
+                print(f'Processing frame {frame_idx} - Avg. Time: {timer_track.average_time}')
+                timer_track.clear()
+
+
 
     if save_results:
         res_file = join(exp_dir, LOG_OUT_NAME)
@@ -323,68 +351,12 @@ def run(source=None,
 
 
 
-    # print(results)
-
-  
-    
-        # # LOOP NUMBER CAMERA INPUTS
-        # for cam_idx, socket_ip in enumerate(socket_ips):
-        #     print('Receiving boxes ')
-        #     cam_ids[cam_idx], timestamps[cam_idx], list_boxes, reception_dummies[cam_idx], det[cam_idx], init_point, frames[cam_idx] = \
-        #                         receive_boxes(socket_ip, reception_dummies[cam_idx])
-            
-            
-            
-            # trackers_list[index], cur_index[index], info_for_deduplicator[index] = execute_tracking(list_boxes,
-            #                                                                                         trackers_list[index],
-            #                                                                                         cur_index[index],
-            #                                                                                         init_point)
-
-
-
-    # end_time = time.time()
-    # print("Exec Inner Time: " + str(end_time - start_time))
-    # print("Exec Inner Time per Iteration: " + str((end_time - start_time) / NUM_ITERS))
-    # print("Exiting Application...")
-    # #finish()
-
-
-
-
-# #------ PADDLE PADDLE APPROACH
-#       for cls_id in range(self.num_classes):
-#             cls_idx = (pred_dets[:, 0:1] == cls_id).squeeze(-1)
-#             pred_dets_dict[cls_id] = pred_dets[cls_idx]
-#             if pred_embs is not None:
-#                 pred_embs_dict[cls_id] = pred_embs[cls_idx]
-#             else:
-#                 pred_embs_dict[cls_id] = None
-
-#         for cls_id in range(self.num_classes):
-#             """ Step 1: Get detections by class"""
-#             pred_dets_cls = pred_dets_dict[cls_id]
-#             pred_embs_cls = pred_embs_dict[cls_id]
-#             remain_inds = (pred_dets_cls[:, 1:2] > self.conf_thres).squeeze(-1)
-#             if remain_inds.sum() > 0:
-#                 pred_dets_cls = pred_dets_cls[remain_inds]
-#                 if pred_embs_cls is None:
-#                     # in original ByteTrack
-#                     detections = [
-#                         STrack(
-#                             STrack.tlbr_to_tlwh(tlbrs[2:6]),
-#                             tlbrs[1],
-#                             cls_id,
-#                             30,
-#                             temp_feat=None) for tlbrs in pred_dets_cls
-#                     ] 
-# #---------
 
 
 
 
 def main(opt):
-
-    # creating experiment folder
+    # Prepare experiment folder
     if not os.path.exists(opt.exp_dir):
         os.makedirs(opt.exp_dir)
     exp_vid_dir = join(opt.exp_dir, opt.expn)
@@ -393,27 +365,34 @@ def main(opt):
     os.makedirs(exp_vid_dir)
     opt.exp_dir = exp_vid_dir
 
-    # # TO-DO: parallelize Loop for every camera at list edge_ips
-    print(f'------------------- {list(opt.edge_ips.split(" "))}')
+    # Convert old "edge_ips" argument into a list of ZeroMQ endpoints
+
+    if isinstance(opt.edge_ips, list):
+        endpoints = opt.edge_ips
+    else:
+        endpoints = str(opt.edge_ips).split(" ")
+
+    print(endpoints)
     
-    for edge_ip in list(opt.edge_ips.split(" ")):
-
-        opt.source = edge_ip
-        run(**vars(opt))
-
-    # # Print results
-    # t = tuple(x.t / seen * 1E3 for x in dt)  # speeds per image
-    # LOGGER.info(f'Speed: %.1fms pre-process, %.1fms inference, %.1fms NMS, %.1fms {opt.tracking_method} update per image at shape {(1, 3, *opt.imgsz)}' % t)
+    
+    # Each endpoint => "host:port"
+    # We'll pass them to run(...) as zmq_endpoints
+    run(zmq_endpoints=endpoints,
+        track_thresh=opt.track_thresh,
+        track_buffer=opt.track_buffer,
+        match_thresh=opt.match_thresh,
+        min_box_area=opt.min_box_area,
+        reid_weights=opt.reid_weights,
+        tracking_method=opt.tracking_method,
+        tracking_config=opt.tracking_config,
+        exp_dir=opt.exp_dir,
+        expn=opt.expn,
+        save_results=opt.save_results,
+        save_plot=opt.save_plot,
+        speed=opt.speed)
 
 
 if __name__ == "__main__":
     opt = parse_opt()
     main(opt)
-    
-    
-    # args = make_parser().parse_args()
-    # exp = get_exp(args.exp_file, args.name)
-    # exp.merge(args.opts)
-    
-    # main()
 
