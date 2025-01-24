@@ -5,9 +5,9 @@ import zmq
 
 def handshake_and_get_info(host_and_port: str):
     """
-    1) Parse "host:port" from the given string
-    2) Do a ZeroMQ REQ handshake to get camera info
-    3) Return a dictionary with { cam_id, height, width, data_path, etc. }
+    - Parse "host:port" from the given string
+    - Do a ZeroMQ REQ handshake to get camera info
+    - Return a dictionary with { cam_id, height, width, data_path, etc. }
     """
     host, port_str = host_and_port.split(":")
     port = int(port_str)
@@ -16,12 +16,12 @@ def handshake_and_get_info(host_and_port: str):
     ctx = zmq.Context()
     req_socket = ctx.socket(zmq.REQ)
     req_socket.connect(handshake_addr)
-    print(f"\n\n[main.py] Sending handshake to {handshake_addr}")
+    print(f"\n\n[zmq_handler] Sending handshake to {handshake_addr}")
     req_socket.send_string("")  # empty request
 
     # Receive the pipe-delimited camera info
     resp = req_socket.recv_string()
-    print(f"[main.py] Got camera info: {resp}\n\n")
+    print(f"[zmq_handler] Got camera info: {resp}\n\n")
     req_socket.close()
     ctx.term()
 
