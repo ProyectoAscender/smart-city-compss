@@ -27,4 +27,4 @@ gdown
 lap
 
 
-opencv_python
+# opencv_python

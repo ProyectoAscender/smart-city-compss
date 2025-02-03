@@ -5,3 +5,6 @@ bg_pid=$! && \
 echo "one $!" && \
 wait $bg_pid && echo "waiting job seconds: $SECONDS" && \
 rsync -uazPt *.in ~/data/florencia/batoni/logs
+
+
+# python3 src/main.py --mode='udp' --save_plot=1 agx13:8883

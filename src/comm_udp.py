@@ -8,11 +8,19 @@ def handshake_and_get_info(udpSock, host, port, max_retries, retry_delay):
     """
     @brief Performs a UDP handshake with a specified server to retrieve camera information.
 
-    This function initiates a UDP handshake with the server at the specified `host` and `port`.
-    It attempts to send an empty handshake packet, waits for an acknowledgment ("ACK"), and then
-    retrieves camera information from the server. The handshake process is retried up to `max_retries`
-    times, with a delay of `retry_delay` seconds between attempts. If all retries fail, the function raises
-    a `RuntimeError`.
+    This function establishes a handshake process with a UDP server at the given `host` and `port`. 
+    The handshake follows these steps:
+    
+    1. The client sends a "REQ" message to initiate the handshake.
+    2. The server responds with either:
+       - "NOTREADY": The client waits and retries.
+       - "READY": The client proceeds to receive camera information.
+    3. If "READY" is received:
+       - The client expects a second message containing camera details.
+       - If successfully received, the client parses and acknowledges ("ACK") the message.
+       - The extracted camera information is returned as a dictionary.
+    4. The process is retried up to `max_retries` times with `retry_delay` seconds between attempts.
+    5. If all attempts fail, the function raises a `RuntimeError`.
 
     @param udpSock       A pre-initialized UDP socket for communication.
     @param host          The IP address or hostname of the server to connect to.
@@ -34,7 +42,6 @@ def handshake_and_get_info(udpSock, host, port, max_retries, retry_delay):
     @note The function assumes the server sends the following camera info in the format:
           "Sent  UDP: |<cam_id>|<gstreamer>|<frames_to_process>|<height>|<width>|<data_path>"
           
-    @note The Socket is switched into blocking mode after ACK.
     """
     
     # Send an empty packet to initiate handshake
@@ -44,55 +51,54 @@ def handshake_and_get_info(udpSock, host, port, max_retries, retry_delay):
     for attempt in range(1, max_retries + 1):
         try:
             print(f"[udp_handler] Handshake attempt {attempt}/{max_retries} to {serverAddr}")
-
-            # Send an empty packet to initiate handshake
-            udpSock.sendto(b"", serverAddr)
-
-            # Wait for acknowledgment ("ACK")
-            data, address = udpSock.recvfrom(1024)
-            ack = data.decode('utf-8', errors='ignore')
-            if ack != "ACK":
-                print(f"[udp_handler] Unexpected response: {ack}. Retrying...")
-                continue
-            print(f"[udp_handler] Received ACK from {address}. Waiting for camera info...")
-
             
-            # Wait for camera info
-            while True:
-                try:
-                    data, address = udpSock.recvfrom(1024)
-                    resp = data.decode('utf-8', errors='ignore')
-                    print(f"[udp_handler] Received from: {address}, camera info: {resp}")
+            # Send "REQ"
+            udpSock.sendto(b"REQ", serverAddr)
 
+            # Read response
+            data, address = udpSock.recvfrom(1024)
+            response = data.decode("utf-8", errors="ignore").strip()
+            print(f"[udp_handler] Got response: '{response}'")
+            
+            # Check response
+            if response == "NOTREADY":
+                print(f"[udp_handler] Server not ready. Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+                continue
+            
+            elif response == "READY":
+                print(f"[udp_handler] Server is ready. Waiting for camera info...")
+                # The next message should be the cam info
+                data, address = udpSock.recvfrom(1024)
+                resp = data.decode('utf-8', errors='ignore')
+                print(f"[udp_handler] Received from: {address}, camera info: {resp}")
 
-                    # Example parse. 
-                    # e.g. "Sent  UDP: |1112|1|200|720|1280|/path/to/data"
-                    parts = resp.split("|")
-                    # parts[0] = "Sent  UDP: "
-                    # parts[1] = cam_id
-                    # parts[2] = gstreamer
-                    # parts[3] = framesToProcess
-                    # parts[4] = height
-                    # parts[5] = width
-                    # parts[6] = dataPath
-                    cam_id = parts[1]
-                    gstreamer = int(parts[2])
-                    frames_to_process = int(parts[3])
-                    height = int(parts[4])
-                    width  = int(parts[5])
-                    data_path = parts[6]
-
-                    return {
-                        "cam_id": cam_id,
-                        "gstreamer": gstreamer,
-                        "frames_to_process": frames_to_process,
-                        "cam_height": height,
-                        "cam_width": width,
-                        "data_path": data_path
-                    }
-                except socket.timeout:
-                    print("[udp_handler] Still waiting for camera info...")
-                    continue  # Keep waiting for camera info
+                # e.g. "Sent  UDP: |1112|1|200|720|1280|/path/to/data"
+                parts = resp.split("|")
+                cam_id = parts[1]
+                gstreamer = int(parts[2])
+                frames_to_process = int(parts[3])
+                height = int(parts[4])
+                width  = int(parts[5])
+                data_path = parts[6]
+                
+                # Send an ACK
+                udpSock.sendto(b"ACK", serverAddr)
+                print(f"[udp_handler] Sent ACK to {serverAddr}")
+                
+                # Return the content of the camera message
+                return {
+                    "cam_id": cam_id,
+                    "gstreamer": gstreamer,
+                    "frames_to_process": frames_to_process,
+                    "cam_height": height,
+                    "cam_width": width,
+                    "data_path": data_path
+                }
+            
+            # If the response is something else we don't recognize, treat it as a transient failure
+            print(f"[client] Unexpected response '{response}'. Will retry.")
+            time.sleep(retry_delay)
             
         except socket.timeout:
             print(f"[udp_handler] Attempt {attempt} timed out. Retrying in {retry_delay} seconds...")

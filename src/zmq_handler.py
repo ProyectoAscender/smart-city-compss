@@ -77,7 +77,7 @@ def run_zmq(
         CAM_WIDTH  = int(info["cam_width"])
         DATA_PATH = info["data_path"].replace("'", "")
         DATA_PATH = os.path.join(*(DATA_PATH.split(os.path.sep)[3:-1]))
-        videoPath = os.path.join( 'data', DATA_PATH, "videos/20230721_092248_cam01h264.mp4")
+        # videoPath = os.path.join( 'data', DATA_PATH, "videos/20230721_092248_cam01h264.mp4")
         CITY = DATA_PATH.split(os.path.sep)[0]
         AREA = DATA_PATH.split(os.path.sep)[1]
         DATA_PATH = os.path.join( 'data', DATA_PATH)
@@ -141,6 +141,7 @@ def run_zmq(
     ## LOOP ITERATING FRAMES:
     frame_idx = 0
     timer_track = Timer()
+    timer_reception = Timer()
     first_no_socks = 0
     max_await = 5
 
@@ -148,6 +149,9 @@ def run_zmq(
     # We loop indefinitely or until some condition
     while frame_idx < NUM_ITERS:
         frame_idx += 1
+        
+        
+        tm.sleep(3)
         
         # poll all sub sockets
         socks = dict(poller.poll(timeout=2000))  # 2s poll
@@ -163,6 +167,8 @@ def run_zmq(
 
         for i, sub_socket in enumerate(sub_sockets):
             if sub_socket in socks and socks[sub_socket] == zmq.POLLIN:
+                timer_reception.tic()
+                
                 # 2-part message: [topic=camera_id, data=hex_string]
                 parts = sub_socket.recv_multipart()
                 if len(parts) != 2:
@@ -170,9 +176,6 @@ def run_zmq(
 
                 camera_id = parts[0].decode('utf-8', errors='ignore')
                 hex_data  = parts[1]
-
-                
-                timer_track.tic()
 
                 
                 frameData = list(comm_zmq.decode_hex_bboxes(hex_data))
@@ -183,6 +186,11 @@ def run_zmq(
                 frameId = frameData[0][2]
                 ts = frameData[0][3]
 
+                timer_reception.toc()
+                
+                
+                
+                timer_track.tic()
                 
                 print(f"Processing Frame: {frameId} with timestamp: {ts}")
                 
@@ -260,8 +268,11 @@ def run_zmq(
 
             
             if frame_idx % 10 == 0:
-                print(f'Processing frame {frame_idx} - Avg. Time: {timer_track.average_time}')
+                print(f'Processing frame {frame_idx}')
+                print(f'\t- Avg. Reception Time: {timer_reception.average_time}')
+                print(f'\t- Avg. Tracking Time: {timer_track.average_time}')
                 timer_track.clear()
+                timer_reception.clear()
 
 
 

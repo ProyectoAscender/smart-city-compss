@@ -9,6 +9,8 @@ import numpy as np
 import shutil
 import time as tm
 import socket
+import signal
+import sys
 
 import comm_udp as comm_udp
 
@@ -18,6 +20,16 @@ import comm_udp as comm_udp
 DEFAULT_FPS = 30
 VIDEO_OUT_NAME = "video_tracking_output.mp4"
 LOG_OUT_NAME = "out.txt"
+
+# Global flag for exiting the program gracefully
+FINISH_PROGRAM = False
+
+def signal_handler(sig, frame):
+    global FINISH_PROGRAM
+    print("\n[Signal Handler] Ctrl+C clicked! Closing execution...")
+    FINISH_PROGRAM = True
+
+signal.signal(signal.SIGINT, signal_handler)
 
 
 
@@ -38,6 +50,8 @@ def run_udp(
         speed = True
         ):
 
+    global FINISH_PROGRAM
+    
     print("\n\n\n[udp_handler] Starting UDP-based tracking...")
     
     # Convert edge_ips to a list if needed
@@ -63,6 +77,9 @@ def run_udp(
     # For each Edge Device, do handshake, connect UDP
     # This could be parallel, so that each edge device is processed at once
     for edge_device in edge_ips:
+        if FINISH_PROGRAM:
+            break
+        
         print(f"[udp_handler] Handling edge_ip: {edge_device}")
         
         # parse "host:port"
@@ -72,7 +89,7 @@ def run_udp(
         # Create a UDP socket with configuration params
         udpSock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         udpSock.settimeout(5.0)  # timeout for individual attempts
-        max_retries=20
+        max_retries=150
         retry_delay=1
         
         # handshake to get camera info
@@ -91,7 +108,7 @@ def run_udp(
         CAM_WIDTH  = int(info["cam_width"])
         DATA_PATH = info["data_path"].replace("'", "")
         DATA_PATH = os.path.join(*(DATA_PATH.split(os.path.sep)[3:-1]))
-        videoPath = os.path.join( 'data', DATA_PATH, "videos/20230721_092248_cam01h264.mp4")
+        # videoPath = os.path.join( 'data', DATA_PATH, "videos/20230721_092248_cam01h264.mp4")
         CITY = DATA_PATH.split(os.path.sep)[0]
         AREA = DATA_PATH.split(os.path.sep)[1]
         DATA_PATH = os.path.join( 'data', DATA_PATH)
@@ -112,13 +129,25 @@ def run_udp(
         
         # Optinal saving video stuff
         if save_plot:
-            # Get path to get frames, removing edge source video b2drop root 
-            print(f'{videoPath}')
-            cap = cv2.VideoCapture('./20230721_092248_cam01h264.mp4') # TO - DO: else con gstreamer
+            
+            gst_str = (
+                    "udpsrc port=5001 multicast-group=239.255.12.42 auto-multicast=true ! "
+                    "application/x-rtp,media=video,clock-rate=90000,encoding-name=H264 ! "
+                    "rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! appsink"
+                )
+            
+            
+            cap = cv2.VideoCapture(gst_str, cv2.CAP_GSTREAMER)
+            if not cap.isOpened():
+                print("Failed to open GStreamer pipeline for receiving processed frames")
+                exit(1)
+        
             vid_fps = cap.get(cv2.CAP_PROP_FPS)
             FPS = vid_fps if int(vid_fps) > 0 else DEFAULT_FPS
+            
             # Prepare video output
             out_path = join(exp_dir, VIDEO_OUT_NAME)
+            print(out_path)
             video_format = 'MP4V'
             fourcc = cv2.VideoWriter_fourcc(*video_format)
             print(f'Saving video. Path: {out_path} | fps: {FPS} | resolution: {CAM_WIDTH}x{CAM_HEIGHT}')
@@ -129,44 +158,53 @@ def run_udp(
         ## LOOP ITERATING FRAMES:
         frame_idx = 0
         timer_track = Timer()
-        first_no_socks = 0
-        max_await = 5
+        timer_reception = Timer()
+        timer_wait_recv = Timer()
+        hex_data = ""
+        skiped_frames = 0
 
         
         # We loop indefinitely or until some condition
-        while frame_idx < NUM_ITERS:
+        while frame_idx < NUM_ITERS:                            
             frame_idx += 1
             
-            # Handles camerda edge going to sleep.
-            try:
-                hex_data, address = udpSock.recvfrom(16000)  # bigger buffer if needed
-            except socket.timeout:
-                print("[main.py] No bounding box data, continuing...")
-            
-                if(first_no_socks ==  0):
-                    first_no_socks = frame_idx
-                if frame_idx - first_no_socks <= max_await:
-                    print("[udp_handler] No data in 2s, continuing...")
-                    continue
-                else:
-                    print("[udp_handler] Waited for too long, dropping connection...")
+            # Loop to get the last message
+            udpSock.setblocking(False)
+            timer_wait_recv.tic()
+            while True:
+                if FINISH_PROGRAM:
+                    break   
+                try:
+                    hex_data, address = udpSock.recvfrom(16000)  # bigger buffer if needed
+                    
+                except BlockingIOError as b:
+                    if(hex_data==""):   # hex_data is set to "" at the end of the processing loop
+                        # print("[main.py] No bounding box data, continuing...")
+                        continue
+     
+                    timer_wait_recv.toc()
                     break
-
-
-            timer_track.tic()
-
+            
+            udpSock.setblocking(True)
+            if FINISH_PROGRAM:
+                break
+            
+            timer_reception.tic()
+        
             # Decode the message as per our template            
-            frameData = list(comm_udp.decode_hex_bboxes(hex_data)) 
+            frameData = list(comm_udp.decode_hex_bboxes(hex_data))      
             
             # Detections to numpy array [x,y,w,h,score,classId]
             det = np.asarray([box[-6:-1] for box in frameData])  # by now,without classId
             
             frameId = frameData[0][2]
-            ts = frameData[0][3]
+            ts = frameData[0][3]           
             
-            
-            # print(f"Processing Frame: {frameId} with timestamp: {ts}")
+            timer_reception.toc()
 
+            print(f"Processing Frame {frameId} with time stamp: {ts}")
+
+            timer_track.tic()
 
             ## TRACKING
     
@@ -206,7 +244,7 @@ def run_udp(
                             speed = (distance / time) * 3.6
                             t.speeds = np.append(t.speeds, speed)
                             online_speeds.append(f"#{t.track_id} {t.speeds[-1].astype(int)} km/h /n") # 
-                            print(online_speeds)
+                            # print(online_speeds)
                         else:
                             t.location = mapPoints
 
@@ -237,14 +275,24 @@ def run_udp(
 
             
             if frame_idx % 10 == 0:
-                print(f'Processing frame {frame_idx} - Avg. Time: {timer_track.average_time}')
+                print(f'Processing frame {frame_idx}')
+                print(f'\t- Avg. Reception Time: {timer_reception.average_time}')
+                print(f'\t- Avg. Waiting Time: {timer_wait_recv.average_time}')                
+                print(f'\t- Avg. Tracking Time: {timer_track.average_time}')
                 timer_track.clear()
+                timer_reception.clear()
+                timer_wait_recv.clear()
 
-                if frameId != frame_idx:
-                    print(f"{frameId - frame_idx} frames are missing!! Camera-edge is not waiting for smartcity!")
-                    # break
+            if frameId != frame_idx and frameId - frame_idx != skiped_frames:
+                skiped_frames = frameId - frame_idx
+                print(f"\tSmartCity skipped one frame!! Total skipped frames: {frameId - frame_idx}")
+                # break
+
+            hex_data = ""
 
 
+       
+        print(f"\n\n\tSmartCity skipped a total of {frameId - frame_idx} frames.")
 
         if save_results:
             res_file = join(exp_dir, LOG_OUT_NAME)
@@ -255,6 +303,7 @@ def run_udp(
 
         if save_plot: 
             print(f"Releasing video...")
+            cap.release()
             vid_writer.release()
             
         udpSock.close()
@@ -268,6 +317,8 @@ def run_udp(
 
 
 def main_udp(opt):
+    global FINISH_PROGRAM
+    
     # Prepare experiment folder
     if not os.path.exists(opt.exp_dir):
         os.makedirs(opt.exp_dir)

@@ -1,56 +1,50 @@
-ARG ROOT_CONTAINER=registry.gitlab.bsc.es/ppc-bsc/software/compss/compss:2.10
+ARG ROOT_CONTAINER=registry.gitlab.bsc.es/ppc/software/compss/compss_nvidia:3.3-arm
 FROM $ROOT_CONTAINER as builder
 
 # FROM ubuntu:18.04
 WORKDIR /root
-# LABEL maintainer="Unai Perez <unai.perez@bsc.es>"
-
-# ENV JAVA_HOME=/usr/lib/jvm/java-8-openjdk-arm64
 
 
-# COPY --from=builder /opt/COMPSs /opt/COMPSs
-# COPY --from=builder /etc/profile.d/compss.sh /etc/profile.d/compss.sh
-# COPY --from=builder /usr/local/lib/python3.6 /usr/local/lib/python3.6
+# Install base dependencies
+RUN apt-get update -y && apt-get install -y --no-install-recommends \
+    build-essential cmake git pkg-config \
+    libgtk-3-dev libavcodec-dev libavformat-dev libswscale-dev \
+    libtbb2 libtbb-dev libjpeg-dev libpng-dev libtiff-dev \
+    libdc1394-22-dev libv4l-dev v4l-utils \
+    gstreamer1.0-tools gstreamer1.0-plugins-base \
+    gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
+    gstreamer1.0-plugins-ugly gstreamer1.0-libav \
+    libgstreamer-plugins-base1.0-dev \
+    libgdal-dev libeigen3-dev nano vim \
+    && rm -rf /var/lib/apt/lists/*
 
-# RUN apt update && \
-#     apt install -y openjdk-8-jre-headless uuid-runtime && \
-#     echo ". /etc/profile.d/compss.sh" >> /root/.bashrc
+# Clone and build OpenCV with GStreamer & CUDA support
+RUN git clone --branch 4.x --depth 1 https://github.com/opencv/opencv.git && \
+    git clone --branch 4.x --depth 1 https://github.com/opencv/opencv_contrib.git && \
+    mkdir -p opencv/build && cd opencv/build && \
+    cmake -D CMAKE_BUILD_TYPE=RELEASE \
+          -D CMAKE_INSTALL_PREFIX=/usr/local \
+          -D OPENCV_EXTRA_MODULES_PATH=/root/opencv_contrib/modules \
+          -D WITH_GSTREAMER=ON \
+          -D WITH_FFMPEG=ON \
+          -D BUILD_EXAMPLES=OFF \
+          -D BUILD_opencv_java=OFF \ 
+          -D PYTHON_EXECUTABLE=$(which python3) \
+          -D PYTHON3_PACKAGES_PATH=$(python3 -c "import site; print(site.getsitepackages()[0])") \
+          -D PYTHON3_INCLUDE_DIR=$(python3 -c "import sysconfig; print(sysconfig.get_path('include'))") \
+          -D PYTHON3_NUMPY_INCLUDE_DIRS=$(python3 -c "import numpy; print(numpy.get_include())") \
+          .. && \
+    make -j"$(nproc)" && \
+    make install && \
+    ldconfig
 
-# RUN apt install -qq -y openjdk-8-jre-headless openjdk-8-jdk openssh-server openssh-client uuid-runtime python3 python3-pip python3-setuptools libgmp3-dev flex bison libbison-dev texinfo libffi-dev libxml2 gfortran libpapi-dev papi-tools nano vim rsync
-                            
-# # SSH
-# RUN apt install -qq -y openssh-server openssh-client && \
-#     ssh-keygen -q -N "" -f ~/.ssh/id_rsa && \
-#     cat ~/.ssh/id_rsa.pub > ~/.ssh/authorized_keys && \
-#     echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config && \
-#     service ssh start && \
-#     echo "service ssh start > /dev/null 2>&1" >> ~/.bashrc
-
-# # SSHPass
-# RUN apt install -y sshpass
-
-# # Tzdata
-# RUN DEBIAN_FRONTEND="noninteractive" apt install -y tzdata
-# RUN ln -fs /usr/share/zoneinfo/Europe/Madrid /etc/localtime && \
-#     echo Europe/Madrid > /etc/timezone
-
-
-# # Eigen 3
-# RUN apt install -y git cmake libeigen3-dev libflann-dev python3-matplotlib python-dev python-dev libflann-dev
-
-# RUN ln -s /usr/include/eigen3/Eigen /usr/include/Eigen
+# Verify OpenCV installation
+RUN python3 -c "import cv2; print(cv2.getBuildInformation())" | grep -i gstreamer || \
+    (echo 'ERROR: OpenCV was not built with GStreamer support!' && exit 1)
 
 
-# # Pybind11
-# RUN apt install -y python3-pip && python3 -m pip install pytest
 
-# RUN git clone https://github.com/pybind/pybind11.git && \
-#     cd pybind11 && \
-#     mkdir build && \
-#     cd build && \
-#     cmake .. && \
-#     make check -j8 && \
-#     make install
+
 
 
 RUN apt update -y && apt install -y software-properties-common
@@ -88,6 +82,9 @@ WORKDIR /root/smartcity-compss
 # Compss obstacle detection dependencies
 COPY requirements.txt requirements.txt
 RUN echo hola
+
+
+# Then install your requirements
 RUN python3 -m pip install -r requirements.txt
 
 

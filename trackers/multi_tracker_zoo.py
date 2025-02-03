@@ -3,8 +3,8 @@ from trackers.parser import get_config
 def create_tracker(tracker_type, tracker_config, reid_weights):
     
     cfg = get_config(tracker_config)
-    print('--------------------')
-    print(cfg)
+    # print('--------------------')
+    # print(cfg)
     cfg.merge_from_file(tracker_config)
 
     if tracker_type == 'ocsort':

@@ -11,11 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-COMPSS_VERSION=3.0-heuristics-arm
+COMPSS_VERSION=3.3-arm
 PYTHON_VERSION=-
-SMARTCITY_VERSION=1.0
+SMARTCITY_VERSION=3.3
 TAG=${COMPSS_VERSION}-${PYTHON_VERSION}-${SMARTCITY_VERSION}
-BUILDER=registry.gitlab.bsc.es/ppc/software/compss/compss:${COMPSS_VERSION}
+BUILDER=registry.gitlab.bsc.es/ppc/software/compss/compss_nvidia:${COMPSS_VERSION}
 PREFIX=registry.gitlab.bsc.es/ppc/benchmarks/smart-city/
 # PREFIX2=bscppc/
 IMAGE=smart-city-compss
