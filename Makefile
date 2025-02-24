@@ -28,6 +28,6 @@ image:
 
 push: image
 #	docker push $(PREFIX2)$(IMAGE):$(TAG)
-#	docker push $(PREFIX)$(IMAGE):$(TAG)
+	docker push $(PREFIX)$(IMAGE):$(TAG)
 
 clean:

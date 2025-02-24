@@ -7,4 +7,4 @@
 # rsync -uazPt *.in ~/data/florencia/batoni/logs
 
 
-python3 src/main.py --mode='udp' --save_plot=1 agx13:8883
+python3 src/main.py --mode='udp' agx13:8883
