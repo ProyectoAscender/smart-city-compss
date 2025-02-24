@@ -11,7 +11,7 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "args": [
-                "agx13:8883"
+                "--mode=udp", "agx13:8883"
             ]
         }
     ]

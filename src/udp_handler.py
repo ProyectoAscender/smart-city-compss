@@ -5,6 +5,7 @@ from src.timer import Timer
 from src.visualize import plot_tracking
 from trackers.multi_tracker_zoo import create_tracker
 from src.viewTransform import ViewTransformer
+from src import utils
 import numpy as np
 import shutil
 import time as tm
@@ -20,6 +21,9 @@ import comm_udp as comm_udp
 DEFAULT_FPS = 30
 VIDEO_OUT_NAME = "video_tracking_output.mp4"
 LOG_OUT_NAME = "out.txt"
+ALERTS_OUT_NAME = "alarm.txt"
+PMAT_DEST_PATH = "./pmat.txt"
+
 
 # Global flag for exiting the program gracefully
 FINISH_PROGRAM = False
@@ -47,7 +51,8 @@ def run_udp(
         expn = None,
         save_results = True,
         save_plot = False,
-        speed = True
+        speed = True,
+        alerts = True
         ):
 
     global FINISH_PROGRAM
@@ -66,12 +71,6 @@ def run_udp(
     # print(f'- Creating tracker for {opt.source} - ')
     tracker = create_tracker(tracking_method, tracking_config, reid_weights)
     tracker_list.append(tracker, )
-    
-    
-    
-    # Prepare storage for bounding-box results
-    results = []
-
     
     
     # For each Edge Device, do handshake, connect UDP
@@ -101,7 +100,7 @@ def run_udp(
             continue
 
         # GET EDGE INFO:
-        CAM_ID = int(info["cam_id"])
+        CAM_ID = info["cam_id"]
         GSTREAMER = int(info["gstreamer"])
         NUM_ITERS = int(info["frames_to_process"])
         CAM_HEIGHT = int(info["cam_height"])
@@ -113,20 +112,20 @@ def run_udp(
         AREA = DATA_PATH.split(os.path.sep)[1]
         DATA_PATH = os.path.join( 'data', DATA_PATH)
     
-    
-        # Load Pmat (this works assuming 1 edge camera)
-        # PMAT_PATH = utils.find_files_by_strings(os.path.join(DATA_PATH, 'pmat'), CAM_ID, "ACTIVE")[0]
+        PMAT_PATH = utils.find_files_by_strings(os.path.join(DATA_PATH, 'pmat'), CAM_ID, "ACTIVE")[0]
+        if (not os.path.exists(PMAT_DEST_PATH)) or (os.stat(PMAT_PATH).st_mtime - os.stat(PMAT_DEST_PATH).st_mtime > 1) :
+            # Load pmat. First we add a local copy to avoid b2drop delay
+            # Load Pmat (this works assuming 1 edge camera)
+            shutil.copy2 (PMAT_PATH, PMAT_DEST_PATH)
+            # view_transformer = ViewTransformer(pmatPath = PMAT_PATH)
+            # os.system('cp -u' + PMAT_PATH + ' ./pmat.txt')
             
-        # Load pmat
-        # view_transformer = ViewTransformer(pmatPath = PMAT_PATH)
-        # os.system('cp ' + PMAT_PATH + ' ./pmat.txt')
-        view_transformer = ViewTransformer(pmatPath = 'pmat.txt')
         
+        view_transformer = ViewTransformer(pmatPath = "./pmat.txt")
+
         img_info = [CAM_HEIGHT, CAM_WIDTH]
         test_size = (img_info[0], img_info[1]) # We don't want to re-scale yet
 
-        
-        
         # Optinal saving video stuff
         if save_plot:
             
@@ -160,9 +159,16 @@ def run_udp(
         timer_track = Timer()
         timer_reception = Timer()
         timer_wait_recv = Timer()
+        timer_speed = Timer()
+        timer_video = Timer()
+        timer_alerts = Timer()
+        
         hex_data = ""
         skiped_frames = 0
 
+        # Prepare storage for bounding-box results
+        results = []
+        alertInfo = []
         
         # We loop indefinitely or until some condition
         while frame_idx < NUM_ITERS:                            
@@ -207,7 +213,6 @@ def run_udp(
             timer_track.tic()
 
             ## TRACKING
-    
             if det is not None:
 
                 # Update tracker
@@ -230,7 +235,8 @@ def run_udp(
                         )
 
                 timer_track.toc()
-
+                
+                timer_speed.tic()
                 if (speed):
                     for t in online_targets:
                         # Update tracklet latest 2 locations
@@ -247,14 +253,21 @@ def run_udp(
                             # print(online_speeds)
                         else:
                             t.location = mapPoints
-
-
-
-
+                timer_speed.toc()
                         # online_speeds.append()
+            
+            timer_alerts.tic()
+            if (alerts and frame_idx % 100):    
+                alert_category , severity  = 'hazardOnRoad', 'critical'
+                description =  '"Vehicle between stop and railway with red light"'
+                alertFlag = True
+                if  online_targets[0].location is not None:
+                    alertInfo.append(
+                        f"{frameId},{ts},{alert_category}, {severity} {description},{CAM_ID},{online_targets[0].track_id},{online_targets[0].location[0][0]:.6f},{online_targets[0].location[0][1]:.6f}\n"
+                                    )
+            timer_alerts.toc()
 
-            
-            
+            timer_video.tic()
             if save_plot:
                 ret, frame = cap.read()
                 if not ret:
@@ -263,15 +276,17 @@ def run_udp(
                     frame, online_tlwhs, online_ids, frame_id=frameId, fps=1. / timer_track.average_time
                 )
                 vid_writer.write(online_im)
+            timer_video.toc()
 
-            else:
-                timer_track.toc()
+
+            # else:
+            #     timer_track.toc()
             
             
-                if save_plot:
-                    ret, frame = cap.read()
-                    online_im = frame
-                    print('Using original frame...')
+            #     if save_plot:
+            #         ret, frame = cap.read()
+            #         online_im = frame
+            #         print('Using original frame...')
 
             
             if frame_idx % 10 == 0:
@@ -279,9 +294,14 @@ def run_udp(
                 print(f'\t- Avg. Reception Time: {timer_reception.average_time}')
                 print(f'\t- Avg. Waiting Time: {timer_wait_recv.average_time}')                
                 print(f'\t- Avg. Tracking Time: {timer_track.average_time}')
+                print(f'\t- Avg. Speed Time: {timer_speed.average_time}')
+                print(f'\t- Avg. Video Time: {timer_video.average_time}')
                 timer_track.clear()
+                timer_speed.clear()
+                timer_video.clear()
                 timer_reception.clear()
                 timer_wait_recv.clear()
+                timer_alerts.clear()
 
             if frameId != frame_idx and frameId - frame_idx != skiped_frames:
                 skiped_frames = frameId - frame_idx
@@ -289,7 +309,7 @@ def run_udp(
                 # break
 
             hex_data = ""
-
+        # WHILE ENDED
 
        
         print(f"\n\n\tSmartCity skipped a total of {frameId - frame_idx} frames.")
@@ -300,6 +320,13 @@ def run_udp(
             with open(res_file, 'w') as f:
                 f.writelines(results)
             print(f"save results to {res_file}")
+            
+        if alerts:
+            alarm_file = join(exp_dir, ALERTS_OUT_NAME)
+            print(f"Savedir: {alarm_file}")
+            with open(alarm_file, 'w') as f:
+                f.writelines(alertInfo)
+            print(f"save results to {alarm_file}")
 
         if save_plot: 
             print(f"Releasing video...")
@@ -345,4 +372,6 @@ def main_udp(opt):
         expn=opt.expn,
         save_results=opt.save_results,
         save_plot=opt.save_plot,
-        speed=opt.speed)
+        speed=opt.speed,
+        alerts=opt.alerts
+        )

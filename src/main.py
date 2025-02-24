@@ -32,6 +32,7 @@ def parse_opt():
     parser.add_argument("--save_results", type=bool, default=True, help="save tracking results into txt")
     parser.add_argument('--save_plot', type=bool, default=False, help="plot tracking")
     parser.add_argument('--speed', type=bool, default=True, help="Measure speed")
+    parser.add_argument('--alerts', type=bool, default=True, help="Generate alerts")
     parser.add_argument("--expn", "--experiment-name", type=str, default= datetime.now().strftime("%m%d%Y_%H%M%S"))
     parser.add_argument('--exp_dir', default=relROOT / '..' / 'runs' / 'exp', help='experiment directory')
     # parser.add_argument("--mqtt_wait", nargs='?', const=True, type=str2bool, default=False)  # True as default
@@ -44,6 +45,7 @@ def parse_opt():
     parser.add_argument("--track_buffer", type=int, default=30, help="the frames for keep lost tracks")
     parser.add_argument("--match_thresh", type=float, default=0.9, help="matching threshold for tracking")
     parser.add_argument("--min_box_area", type=float, default=100, help='filter out tiny boxes')
+
     parser.add_argument("edge_ips", type=str,default=['1111'], nargs='?')
     opt = parser.parse_args()
     opt.tracking_config = relROOT / '../trackers' / opt.tracking_method / 'configs' / (opt.tracking_method + '.yaml')
