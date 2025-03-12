@@ -136,9 +136,15 @@ def decode_hex_bboxes(hex_data):
     
     if not hex_data:
         return []
+    # Get hex payload
     dataB = bytes.fromhex(hex_data.decode())
-    format_string = ">?4shQhhhhfh"
-
-    unpacked_data = struct.iter_unpack(format_string, dataB)
+    # Try to decode with or without boxes
+    try:
+        format_string = ">?4shQhhhhfh"
+        unpacked_data = struct.iter_unpack(format_string, dataB)
+    except struct.error as e:
+        print(f"Error con formato {format_string}: {e} , trying no boxes format...")
+        format_string = ">?4shQ"
+        unpacked_data = struct.iter_unpack(format_string, dataB)
 
     return unpacked_data

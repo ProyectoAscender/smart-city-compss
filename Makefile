@@ -12,22 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 COMPSS_VERSION=3.3-arm
-PYTHON_VERSION=-
-SMARTCITY_VERSION=3.3
-TAG=${COMPSS_VERSION}-${PYTHON_VERSION}-${SMARTCITY_VERSION}
+SMARTCITY_VERSION=1.0
+TAG=${SMARTCITY_VERSION}-${COMPSS_VERSION}
 BUILDER=registry.gitlab.bsc.es/ppc/software/compss/compss_nvidia:${COMPSS_VERSION}
 PREFIX=registry.gitlab.bsc.es/ppc/benchmarks/smart-city/
-# PREFIX2=bscppc/
+PREFIX2=ghcr.io/proyectoascender/smart-city/
 IMAGE=smart-city-compss
 
 all: push
 
 image:
 	docker build . -f Dockerfile --build-arg ROOT_CONTAINER=$(BUILDER) -t $(PREFIX)$(IMAGE):$(TAG)
-# docker image tag $(PREFIX)$(IMAGE):$(TAG) $(PREFIX2)$(IMAGE):$(TAG)
+	docker image tag $(PREFIX)$(IMAGE):$(TAG) $(PREFIX2)$(IMAGE):$(TAG)
 
 push: image
-#	docker push $(PREFIX2)$(IMAGE):$(TAG)
+	docker push $(PREFIX2)$(IMAGE):$(TAG)
 	docker push $(PREFIX)$(IMAGE):$(TAG)
 
 clean:

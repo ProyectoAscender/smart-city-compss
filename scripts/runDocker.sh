@@ -1,7 +1,14 @@
 #!/bin/bash
 # docker run --runtime nvidia -it --name smartcity01 --net=host -v ~/smart-city-compss:/root/smartcity-compss -v /mnt/b2drop/smartCity:/root/smartcity-compss/data  registry.gitlab.bsc.es/ppc/benchmarks/smart-city/smart-city-compss:3.0-heuristics-arm---1.0 /bin/bash
+COMPSS_VERSION=3.3-arm
+SMARTCITY_VERSION=1.0
+TAG=${SMARTCITY_VERSION}-${COMPSS_VERSION}
+# IMAGE=registry.gitlab.bsc.es/ppc/software/compss/compss_nvidia:${COMPSS_VERSION}
+IMAGE=smart-city-compss
+PREFIX=registry.gitlab.bsc.es/ppc/benchmarks/smart-city/
+PREFIX2=ghcr.io/proyectoascender/smart-city/
 
+export DISPLAY=:10
 
-
-
-docker run --runtime nvidia -it --name smartcity01 --net=host -v ~/smart-city-compss:/root/smartcity-compss -v /mnt/b2drop/smartCity:/root/smartcity-compss/data  registry.gitlab.bsc.es/ppc/benchmarks/smart-city/smart-city-compss:3.3-arm---3.3 /bin/bash
+# registry.gitlab.bsc.es/ppc/benchmarks/smart-city/smart-city-compss:3.3-arm--1.0
+docker run --rm --runtime  nvidia -it --name smartcity_$USER -v ~/.Xauthority:/root/.Xauthority -v /tmp/.X11-unix:/tmp/.X11-unix -e DISPLAY=$DISPLAY --net=host -v ~/smart-city-compss:/root/smartcity-compss -v /mnt/b2drop/smartCity:/root/smartcity-compss/data  ${PREFIX}${IMAGE}:${TAG} /bin/bash

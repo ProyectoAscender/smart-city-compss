@@ -187,7 +187,7 @@ def run_udp(
                     if(hex_data==""):   # hex_data is set to "" at the end of the processing loop
                         # print("[main.py] No bounding box data, continuing...")
                         continue
-     
+
                     timer_wait_recv.toc()
                     break
             
@@ -200,11 +200,14 @@ def run_udp(
             # Decode the message as per our template            
             frameData = list(comm_udp.decode_hex_bboxes(hex_data))      
             
-            # Detections to numpy array [x,y,w,h,score,classId]
-            det = np.asarray([box[-6:-1] for box in frameData])  # by now,without classId
-            
             frameId = frameData[0][2]
-            ts = frameData[0][3]           
+            ts = frameData[0][3]
+
+            det = []
+            # Checking because message can have 0 detections, only one row with frame info data
+            if (len(frameData[0]) > 4):
+                # Detections to numpy array [x,y,w,h,score,classId]
+                det = np.asarray([box[-6:-1] for box in frameData])  # by now,without classId
             
             timer_reception.toc()
 
@@ -213,58 +216,70 @@ def run_udp(
             timer_track.tic()
 
             ## TRACKING
-            if det is not None:
-
+            # Frames con detecciones
+            if det != []:
                 # Update tracker
                 online_targets = tracker_list[0].update(det, img_info, test_size)
 
-                # Collect and write results
-                online_tlwhs = []
-                online_ids = []
-                online_scores = []
-                online_speeds = []
-                for i, t in enumerate(online_targets):
-                    tlwh = t.tlwh
-                    tid = t.track_id
-                    if tlwh[2] * tlwh[3] > min_box_area: 
-                        online_tlwhs.append(tlwh)
-                        online_ids.append(tid)
-                        online_scores.append(t.score)
-                        results.append(
-                            f"{frameId},{ts},{tid},{tlwh[0]:.2f},{tlwh[1]:.2f},{tlwh[2]:.2f},{tlwh[3]:.2f},{t.score:.2f},-1,-1,-1\n"
-                        )
+            # Frames sin detecciones. Actualizamos el tracker
+            else:
+                tracker_list[0].frame_id += 1  # Avanzamos el frame_id manualmente
+                for track in tracker_list[0].tracked_stracks:
+                    track.frames_since_update += 1  # Incrementamos contador de no actualización
+                online_targets = []            
+                print('Actualizando tracker sin nuevas detecciones ')
+            
+            
+             
+            # Collect and write results if online targets is not empty
+            online_tlwhs = []
+            online_ids = []
+            online_scores = []
+            online_speeds = []
+            for i, t in enumerate(online_targets):
+                tlwh = t.tlwh
+                tid = t.track_id
+                if tlwh[2] * tlwh[3] > min_box_area: 
+                    online_tlwhs.append(tlwh)
+                    online_ids.append(tid)
+                    online_scores.append(t.score)
+                    results.append(
+                        f"{frameId},{ts},{tid},{tlwh[0]:.2f},{tlwh[1]:.2f},{tlwh[2]:.2f},{tlwh[3]:.2f},{t.score:.2f},-1,-1,-1\n"
+                    )
 
-                timer_track.toc()
-                
-                timer_speed.tic()
-                if (speed):
-                    for t in online_targets:
-                        # Update tracklet latest 2 locations
-                        mapPoints = view_transformer.transform_points(points = t.to_bc()[0:2])#.astype(int)
-                        if t.location is not None: 
-                            t.prev_location = t.location
-                            t.location = mapPoints
-                            # Calculate speed
-                            distance = np.square(np.sum((np.power(abs(t.location - t.prev_location),2))))
-                            time = 1 / (FPS if "FPS" in vars() else DEFAULT_FPS)
-                            speed = (distance / time) * 3.6
-                            t.speeds = np.append(t.speeds, speed)
-                            online_speeds.append(f"#{t.track_id} {t.speeds[-1].astype(int)} km/h /n") # 
-                            # print(online_speeds)
-                        else:
-                            t.location = mapPoints
-                timer_speed.toc()
-                        # online_speeds.append()
+            timer_track.toc()
+            
+            timer_speed.tic()
+            if (speed):
+                for t in online_targets:
+                    # Update tracklet latest 2 locations
+                    mapPoints = view_transformer.transform_points(points = t.to_bc()[0:2])#.astype(int)
+                    if t.location is not None: 
+                        t.prev_location = t.location
+                        t.location = mapPoints
+                        # Calculate speed
+                        distance = np.square(np.sum((np.power(abs(t.location - t.prev_location),2))))
+                        time = 1 / (FPS if "FPS" in vars() else DEFAULT_FPS)
+                        speed = (distance / time) * 3.6
+                        t.speeds = np.append(t.speeds, speed)
+                        online_speeds.append(f"#{t.track_id} {t.speeds[-1].astype(int)} km/h /n") # 
+                        # print(online_speeds)
+                    else:
+                        t.location = mapPoints
+            timer_speed.toc()
+                    # online_speeds.append()
+            
+            
             
             timer_alerts.tic()
-            if (alerts and frame_idx % 100):    
-                alert_category , severity  = 'hazardOnRoad', 'critical'
-                description =  '"Vehicle between stop and railway with red light"'
-                alertFlag = True
-                if  online_targets[0].location is not None:
-                    alertInfo.append(
-                        f"{frameId},{ts},{alert_category}, {severity} {description},{CAM_ID},{online_targets[0].track_id},{online_targets[0].location[0][0]:.6f},{online_targets[0].location[0][1]:.6f}\n"
-                                    )
+            # if (alerts and frame_idx % 100):    
+            #     alert_category , severity  = 'hazardOnRoad', 'critical'
+            #     description =  '"Vehicle between stop and railway with red light"'
+            #     alertFlag = True
+            #     if  online_targets[0].location is not None:
+            #         alertInfo.append(
+            #             f"{frameId},{ts},{alert_category}, {severity} {description},{CAM_ID},{online_targets[0].track_id},{online_targets[0].location[0][0]:.6f},{online_targets[0].location[0][1]:.6f}\n"
+            #                         )
             timer_alerts.toc()
 
             timer_video.tic()
@@ -275,7 +290,12 @@ def run_udp(
                 online_im = plot_tracking(
                     frame, online_tlwhs, online_ids, frame_id=frameId, fps=1. / timer_track.average_time
                 )
+                # Save video
                 vid_writer.write(online_im)
+                # Show video
+                cv2.imshow("Tracking", online_im)
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    break
             timer_video.toc()
 
 
@@ -288,7 +308,7 @@ def run_udp(
             #         online_im = frame
             #         print('Using original frame...')
 
-            
+
             if frame_idx % 10 == 0:
                 print(f'Processing frame {frame_idx}')
                 print(f'\t- Avg. Reception Time: {timer_reception.average_time}')
@@ -296,6 +316,7 @@ def run_udp(
                 print(f'\t- Avg. Tracking Time: {timer_track.average_time}')
                 print(f'\t- Avg. Speed Time: {timer_speed.average_time}')
                 print(f'\t- Avg. Video Time: {timer_video.average_time}')
+                print(f'\t- Avg. Alerts Time: {timer_alerts.average_time}')
                 timer_track.clear()
                 timer_speed.clear()
                 timer_video.clear()
@@ -311,7 +332,6 @@ def run_udp(
             hex_data = ""
         # WHILE ENDED
 
-       
         print(f"\n\n\tSmartCity skipped a total of {frameId - frame_idx} frames.")
 
         if save_results:
@@ -332,14 +352,10 @@ def run_udp(
             print(f"Releasing video...")
             cap.release()
             vid_writer.release()
-            
+            cv2.destroyAllWindows()
+
         udpSock.close()
         print(f"[main.py] Done receiving from {edge_device}.\n")
-
-
-
-
-
 
 
 

@@ -21,8 +21,8 @@ WEIGHTS = relROOT / '/weights'
 
 
 # from udp_handler import run_udp, main_udp
-from zmq_handler import main_zmq
 from udp_handler import main_udp
+from zmq_handler import main_zmq
 
 
 
@@ -45,8 +45,7 @@ def parse_opt():
     parser.add_argument("--track_buffer", type=int, default=30, help="the frames for keep lost tracks")
     parser.add_argument("--match_thresh", type=float, default=0.9, help="matching threshold for tracking")
     parser.add_argument("--min_box_area", type=float, default=100, help='filter out tiny boxes')
-
-    parser.add_argument("edge_ips", type=str,default=['1111'], nargs='?')
+    parser.add_argument("--edge_ips", nargs='+', type=str,default=['1111'],help='array with ip:port of camera edges ')
     opt = parser.parse_args()
     opt.tracking_config = relROOT / '../trackers' / opt.tracking_method / 'configs' / (opt.tracking_method + '.yaml')
     print(f'Arguments are: \n {opt}')

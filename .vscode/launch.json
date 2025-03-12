@@ -11,7 +11,7 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "args": [
-                "--mode=udp", "agx13:8883"
+                "--edge_ips=agx13:8882", "--mode=udp" , "--save_plot=False"
             ]
         }
     ]

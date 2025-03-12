@@ -1,0 +1,3 @@
+/home/vmasip/compss/compss/runtime/scripts/utils/compss_docker_gen_image --image-base="registry.gitlab.bsc.es/ppc/benchmarks/smart-city/smart-city-compss:1.0-3.3" \
+                                                                         --image-name="registry.gitlab.bsc.es/ppc/benchmarks/smart-city/smart-city-compss:1.0-3.3-final" \
+                                                                         --context-dir="/home/vmasip/smart-city-compss"
