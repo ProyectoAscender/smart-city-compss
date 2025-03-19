@@ -6,3 +6,4 @@ helm install -n smartcity smartcity-compss .
 kubectl get pods
 kubectl get pods --watch
 kubectl exec -it <pod_name> -c master -- bash
+kubectl logs -n smartcity smartcity-compss-master
