@@ -7,4 +7,4 @@
 # rsync -uazPt *.in ~/data/florencia/batoni/logs
 
 
-python3 src/main.py  --edge_ips=agx13:8882 --mode='udp' --save_plot=True
+python3 src/main.py  --edge_ips=agx13:8883 --mode='udp'

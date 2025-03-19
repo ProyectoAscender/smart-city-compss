@@ -8,7 +8,7 @@ IMAGE=smart-city-compss
 PREFIX=registry.gitlab.bsc.es/ppc/benchmarks/smart-city/
 PREFIX2=ghcr.io/proyectoascender/smart-city/
 
-export DISPLAY=:10
+export DISPLAY=:11
 
 # registry.gitlab.bsc.es/ppc/benchmarks/smart-city/smart-city-compss:3.3-arm--1.0
 docker run --rm --runtime  nvidia -it --name smartcity_$USER -v ~/.Xauthority:/root/.Xauthority -v /tmp/.X11-unix:/tmp/.X11-unix -e DISPLAY=$DISPLAY --net=host -v ~/smart-city-compss:/root/smartcity-compss -v /mnt/b2drop/smartCity:/root/smartcity-compss/data  ${PREFIX}${IMAGE}:${TAG} /bin/bash

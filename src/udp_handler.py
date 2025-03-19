@@ -51,7 +51,8 @@ def run_udp(
         expn = None,
         save_results = True,
         save_plot = False,
-        speed = True,
+        view_plot = False,
+        get_speed = True,
         alerts = True
         ):
 
@@ -126,9 +127,9 @@ def run_udp(
         img_info = [CAM_HEIGHT, CAM_WIDTH]
         test_size = (img_info[0], img_info[1]) # We don't want to re-scale yet
 
-        # Optinal saving video stuff
-        if save_plot:
-            
+        # Optinal saving or visualizing video stuff. Initialization.
+        if save_plot or view_plot:
+
             gst_str = (
                     "udpsrc port=5001 multicast-group=239.255.12.42 auto-multicast=true ! "
                     "application/x-rtp,media=video,clock-rate=90000,encoding-name=H264 ! "
@@ -250,11 +251,12 @@ def run_udp(
             timer_track.toc()
             
             timer_speed.tic()
-            if (speed):
+            if (get_speed):
                 for t in online_targets:
                     # Update tracklet latest 2 locations
                     mapPoints = view_transformer.transform_points(points = t.to_bc()[0:2])#.astype(int)
                     if t.location is not None: 
+                        print(f'Track id {t.track_id} en if {mapPoints}')
                         t.prev_location = t.location
                         t.location = mapPoints
                         # Calculate speed
@@ -265,23 +267,25 @@ def run_udp(
                         online_speeds.append(f"#{t.track_id} {t.speeds[-1].astype(int)} km/h /n") # 
                         # print(online_speeds)
                     else:
+                        print(f'Track id {t.track_id} en else {mapPoints}')
                         t.location = mapPoints
             timer_speed.toc()
                     # online_speeds.append()
             
             
-            
+            # Add alert to list
             timer_alerts.tic()
-            # if (alerts and frame_idx % 100):    
-            #     alert_category , severity  = 'hazardOnRoad', 'critical'
-            #     description =  '"Vehicle between stop and railway with red light"'
-            #     alertFlag = True
-            #     if  online_targets[0].location is not None:
-            #         alertInfo.append(
-            #             f"{frameId},{ts},{alert_category}, {severity} {description},{CAM_ID},{online_targets[0].track_id},{online_targets[0].location[0][0]:.6f},{online_targets[0].location[0][1]:.6f}\n"
-            #                         )
+            if (alerts and frame_idx % 100):    
+                alert_category , severity  = 'hazardOnRoad', 'critical'
+                description =  '"Vehicle between stop and railway with red light"'
+                alertFlag = True
+                if  online_targets != [] :
+                    alertInfo.append(
+                        f"{frameId},{ts},{alert_category}, {severity} {description},{CAM_ID},{online_targets[0].track_id},{online_targets[0].location[0][0]:.6f},{online_targets[0].location[0][1]:.6f}\n"
+                                    )
             timer_alerts.toc()
 
+            # Save frame into video with box plotting
             timer_video.tic()
             if save_plot:
                 ret, frame = cap.read()
@@ -292,24 +296,26 @@ def run_udp(
                 )
                 # Save video
                 vid_writer.write(online_im)
+
+            # View frame with plot
+            if view_plot:
+                if not save_plot:
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
+                    online_im = plot_tracking(
+                        frame, online_tlwhs, online_ids, frame_id=frameId, fps=1. / timer_track.average_time
+                    )
                 # Show video
                 cv2.imshow("Tracking", online_im)
                 if cv2.waitKey(1) & 0xFF == ord('q'):
                     break
+                
+                
             timer_video.toc()
 
 
-            # else:
-            #     timer_track.toc()
-            
-            
-            #     if save_plot:
-            #         ret, frame = cap.read()
-            #         online_im = frame
-            #         print('Using original frame...')
-
-
-            if frame_idx % 10 == 0:
+            if frame_idx % 90 == 0:
                 print(f'Processing frame {frame_idx}')
                 print(f'\t- Avg. Reception Time: {timer_reception.average_time}')
                 print(f'\t- Avg. Waiting Time: {timer_wait_recv.average_time}')                
@@ -388,6 +394,7 @@ def main_udp(opt):
         expn=opt.expn,
         save_results=opt.save_results,
         save_plot=opt.save_plot,
-        speed=opt.speed,
+        view_plot=opt.view_plot,
+        get_speed=opt.get_speed,
         alerts=opt.alerts
         )
