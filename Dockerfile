@@ -77,11 +77,11 @@ RUN apt install -y libgdal-dev
 #     cmake .. && \
 #     make -j8
 
-RUN git clone https://pat:gc7sMZHxho-jyyFfcQRi@gitlab.bsc.es/ppc/benchmarks/smart-city/smart-city-compss.git 
-WORKDIR /root/smartcity-compss
-# Compss obstacle detection dependencies
-COPY requirements.txt requirements.txt
 RUN echo hola
+RUN git clone https://pat:gc7sMZHxho-jyyFfcQRi@gitlab.bsc.es/ppc/benchmarks/smart-city/smart-city-compss.git -b newtracker
+WORKDIR /root/smart-city-compss
+# Compss obstacle detection dependencies
+# COPY requirements.txt requirements.txt
 
 
 # Then install your requirements
