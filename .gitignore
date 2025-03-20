@@ -1,10 +1,12 @@
-.idea
+# .idea
 __pycache__
-*.so
-stubs
-*.in
-*.log
+# *.so
+# stubs
+# *.in
+# *.log
 runs/
-*.pyc
-20230721_092248_cam01h264.mp4
-pmat.txt
+# *.pyc
+# 20230721_092248_cam01h264.mp4
+# pmat.txt
+# data/*
+# !/data/.gitkeep
