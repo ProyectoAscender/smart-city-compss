@@ -11,13 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-COMPSS_VERSION=2.10
-PYTHON_VERSION=3.6
-TAG=${COMPSS_VERSION}-${PYTHON_VERSION}
-BUILDER=bscppc/compss:${COMPSS_VERSION}
-PREFIX=registry.gitlab.bsc.es/ppc/benchmarks/smart-city/smartcity-compss/
-PREFIX2=bscppc/
-IMAGE=smartcity-compss
+COMPSS_VERSION=3.3-arm
+SMARTCITY_VERSION=1.0
+TAG=${SMARTCITY_VERSION}-${COMPSS_VERSION}
+BUILDER=registry.gitlab.bsc.es/ppc/software/compss/compss_nvidia:${COMPSS_VERSION}
+PREFIX=registry.gitlab.bsc.es/ppc/benchmarks/smart-city/
+PREFIX2=ghcr.io/proyectoascender/smart-city/
+IMAGE=smart-city-compss
 
 all: push
 
@@ -26,7 +26,7 @@ image:
 	docker image tag $(PREFIX)$(IMAGE):$(TAG) $(PREFIX2)$(IMAGE):$(TAG)
 
 push: image
-#	docker push $(PREFIX2)$(IMAGE):$(TAG)
-#	docker push $(PREFIX)$(IMAGE):$(TAG)
+	docker push $(PREFIX2)$(IMAGE):$(TAG)
+	docker push $(PREFIX)$(IMAGE):$(TAG)
 
 clean:

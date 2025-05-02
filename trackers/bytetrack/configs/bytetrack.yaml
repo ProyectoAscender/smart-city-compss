@@ -1,0 +1,8 @@
+bytetrack:
+  track_thresh: 0.4 # tracking confidence threshold , to split detection in two groups
+  # remember detection threshold is track_thresold + 0.1
+  # track threshold divides 
+  track_buffer: 150   # the frames for keep lost tracks
+  match_thresh: 0.5  # matching linear_assignment threshold for tracking
+  frame_rate: 30     # FPS
+  # conf_thres: 0.5122620708221085
