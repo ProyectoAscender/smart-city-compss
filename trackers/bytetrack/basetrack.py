@@ -10,8 +10,9 @@ class TrackState(object):
 
 
 class BaseTrack(object):
-    _count = 0
 
+    
+    _count = 0
     track_id = 0
     is_activated = False
     state = TrackState.New
@@ -24,6 +25,9 @@ class BaseTrack(object):
     frame_id = 0
     frames_since_update = 0
     speeds = np.empty(0, dtype=float, order='C')
+
+    event = None # TODO: definir el evento
+    cl = None
 
     # multi-camera
     location = None

@@ -1,7 +1,9 @@
 import os
-import glob
-import sys
 from pathlib import Path
+import json
+from shapely.geometry import Polygon
+from poly import PolySemantic
+ 
 
  
 def category_parse(number):
@@ -61,3 +63,29 @@ def find_files_by_strings(folder_path, string1, string2):
 
 
 
+def getPolysRoi(json_path):
+    with open(json_path) as f:
+        data = json.load(f)
+
+    poly_list = []
+    region_id_counter = 1
+
+    for img_id, img_data in data["_via_img_metadata"].items():
+        for region in img_data["regions"]:
+            shape = region["shape_attributes"]
+            site_type = region["region_attributes"].get("type", None)
+
+            if shape["name"] == "polygon":
+                x = shape["all_points_x"]
+                y = shape["all_points_y"]
+                polygon = Polygon(zip(x, y))
+
+                obj = PolySemantic(
+                    polygon,              # geometría
+                    region_id_counter,    # ID incremental global
+                    site_type             # tipo (bikeLane, road, etc.)
+                )
+                poly_list.append(obj)
+                region_id_counter += 1  # incrementa el contador
+
+    return poly_list

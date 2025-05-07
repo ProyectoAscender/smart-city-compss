@@ -5,17 +5,19 @@ from src.timer import Timer
 from src.visualize import plot_tracking
 from trackers.multi_tracker_zoo import create_tracker
 from src.viewTransform import ViewTransformer
-from src import utils
+from src import utils, event
 import numpy as np
 import shutil
 import time as tm
 import socket
 import signal
 import sys
+import paho.mqtt.client as mqtt
+
+
+from datetime import datetime
 
 import comm_udp as comm_udp
-
-
 
 # Hardcoded values
 DEFAULT_FPS = 30
@@ -24,6 +26,10 @@ LOG_OUT_NAME = "out.txt"
 ALERTS_OUT_NAME = "alarm.txt"
 PMAT_DEST_PATH = "./pmat.txt"
 
+# MQTT broker config
+MQTT_BROKER_IP = "192.168.50.13"
+MQTT_BROKER_PORT = 31883
+MQTT_TOPIC = "alerts"
 
 # Global flag for exiting the program gracefully
 FINISH_PROGRAM = False
@@ -52,10 +58,11 @@ def run_udp(
         save_results = True,
         save_plot = False,
         view_plot = False,
+        semantics = True, 
         get_speed = True,
-        alerts = True
+        alerts = False
         ):
-
+    
     global FINISH_PROGRAM
     
     print("\n\n\n[udp_handler] Starting UDP-based tracking...")
@@ -73,7 +80,17 @@ def run_udp(
     tracker = create_tracker(tracking_method, tracking_config, reid_weights)
     tracker_list.append(tracker, )
     
-    
+        # Check MQTT if alerts are activated
+    if (alerts):
+        # MQTT broker connection
+        mqtt_client = mqtt.Client()
+        try:
+            mqtt_client.connect(MQTT_BROKER_IP, MQTT_BROKER_PORT)
+            print(f"[main.py] Successfully connected to MQTT broker at {MQTT_BROKER_IP}:{MQTT_BROKER_PORT}")
+
+        except Exception as e:
+            print(f"[main.py] ERROR connecting to MQTT broker at {MQTT_BROKER_IP}:{MQTT_BROKER_PORT}: {e}")
+
     # For each Edge Device, do handshake, connect UDP
     # This could be parallel, so that each edge device is processed at once
     for edge_device in edge_ips:
@@ -92,6 +109,7 @@ def run_udp(
         max_retries=150
         retry_delay=1
         
+
         # handshake to get camera info
         try:
             info = comm_udp.handshake_and_get_info(udpSock, host, port, max_retries, retry_delay)
@@ -112,7 +130,7 @@ def run_udp(
         CITY = DATA_PATH.split(os.path.sep)[0]
         AREA = DATA_PATH.split(os.path.sep)[1]
         DATA_PATH = os.path.join( 'data', DATA_PATH)
-    
+        ROI_PATH = DATA_PATH + '/roi/' + AREA.lower() + '.json'
         PMAT_PATH = utils.find_files_by_strings(os.path.join(DATA_PATH, 'pmat'), CAM_ID, "ACTIVE")[0]
         if (not os.path.exists(PMAT_DEST_PATH)) or (os.stat(PMAT_PATH).st_mtime - os.stat(PMAT_DEST_PATH).st_mtime > 1) :
             # Load pmat. First we add a local copy to avoid b2drop delay
@@ -120,7 +138,6 @@ def run_udp(
             shutil.copy2 (PMAT_PATH, PMAT_DEST_PATH)
             # view_transformer = ViewTransformer(pmatPath = PMAT_PATH)
             # os.system('cp -u' + PMAT_PATH + ' ./pmat.txt')
-            
         
         view_transformer = ViewTransformer(pmatPath = "./pmat.txt")
 
@@ -153,7 +170,9 @@ def run_udp(
             print(f'Saving video. Path: {out_path} | fps: {FPS} | resolution: {CAM_WIDTH}x{CAM_HEIGHT}')
             vid_writer = cv2.VideoWriter(out_path, fourcc, FPS, (CAM_WIDTH, CAM_HEIGHT))
 
-
+        if(semantics):
+            polys = utils.getPolysRoi(ROI_PATH)
+            
 
         ## LOOP ITERATING FRAMES:
         frame_idx = 0
@@ -169,7 +188,7 @@ def run_udp(
 
         # Prepare storage for bounding-box results
         results = []
-        alertInfo = []
+        if (alerts): alertInfo = []
         
         # We loop indefinitely or until some condition
         while frame_idx < NUM_ITERS:                            
@@ -208,7 +227,7 @@ def run_udp(
             # Checking because message can have 0 detections, only one row with frame info data
             if (len(frameData[0]) > 4):
                 # Detections to numpy array [x,y,w,h,score,classId]
-                det = np.asarray([box[-6:-1] for box in frameData])  # by now,without classId
+                det = np.asarray([box[-6:] for box in frameData]) 
             
             timer_reception.toc()
 
@@ -245,7 +264,7 @@ def run_udp(
                     online_ids.append(tid)
                     online_scores.append(t.score)
                     results.append(
-                        f"{frameId},{ts},{tid},{tlwh[0]:.2f},{tlwh[1]:.2f},{tlwh[2]:.2f},{tlwh[3]:.2f},{t.score:.2f},-1,-1,-1\n"
+                        f"{frameId},{ts},{tid},{tlwh[0]:.2f},{tlwh[1]:.2f},{tlwh[2]:.2f},{tlwh[3]:.2f},{t.score:.2f},{t.cl},-1,-1,-1\n"
                     )
 
             timer_track.toc()
@@ -275,14 +294,15 @@ def run_udp(
             
             # Add alert to list
             timer_alerts.tic()
-            if (alerts and frame_idx % 100):    
-                alert_category , severity  = 'hazardOnRoad', 'critical'
-                description =  '"Vehicle between stop and railway with red light"'
-                alertFlag = True
-                if  online_targets != [] :
-                    alertInfo.append(
-                        f"{frameId},{ts},{alert_category}, {severity} {description},{CAM_ID},{online_targets[0].track_id},{online_targets[0].location[0][0]:.6f},{online_targets[0].location[0][1]:.6f}\n"
-                                    )
+            if (semantics):
+                for t in online_targets:
+                    t.event = event.Event(t, polys, ts, frameId, t.track_id)
+                if (alerts):
+                    print(f'YYYY {t.event.alertFlag}')
+                    if(t.event.alertFlag):
+                        print('XXXXXXXXXXXXXXXX')
+                        alertInfo.append(t.event)
+                        mqtt_client.publish(MQTT_TOPIC, t.event.to_json(), qos=0)
             timer_alerts.toc()
 
             # Save frame into video with box plotting
@@ -363,7 +383,16 @@ def run_udp(
         udpSock.close()
         print(f"[main.py] Done receiving from {edge_device}.\n")
 
+        if(alerts):
+            # MQTT client disconnect
+            try:
+                mqtt_client.disconnect()
+                print(f"[main.py] Done closing connection with MQTT broker.\n")
+            except Exception as e:
+                print(f"[main.py] ERROR disconnecting from MQTT broker: {e}")
 
+
+            
 
 def main_udp(opt):
     global FINISH_PROGRAM
@@ -396,5 +425,6 @@ def main_udp(opt):
         save_plot=opt.save_plot,
         view_plot=opt.view_plot,
         get_speed=opt.get_speed,
+        semantics=opt.semantics,
         alerts=opt.alerts
         )

@@ -32,8 +32,9 @@ def parse_opt():
     parser.add_argument("--save_results", type=bool, default=True, help="save tracking results into txt")
     parser.add_argument('--save_plot', type=bool, default=False, help="plot tracking")
     parser.add_argument('--view_plot', type=bool, default=False, help="plot view trough x11")
+    parser.add_argument('--alerts', type=bool, default=False, help="Generate alerts with MQTT")
+    parser.add_argument('--semantics', type=bool, default=False, help="Analytics with semantics")
     parser.add_argument('--get_speed', type=bool, default=True, help="Measure speed")
-    parser.add_argument('--alerts', type=bool, default=True, help="Generate alerts")
     parser.add_argument("--expn", "--experiment-name", type=str, default= datetime.now().strftime("%m%d%Y_%H%M%S"))
     parser.add_argument('--exp_dir', default=relROOT / '..' / 'runs' / 'exp', help='experiment directory')
     # parser.add_argument("--mqtt_wait", nargs='?', const=True, type=str2bool, default=False)  # True as default
