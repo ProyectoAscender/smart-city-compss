@@ -1,0 +1,1 @@
+mosquitto_sub -h localhost -p 31883 -t "alerts"

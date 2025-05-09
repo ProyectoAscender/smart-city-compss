@@ -17,12 +17,13 @@ class Event(object):
         self.getPolType(t, polys)
         self.eventType(t)
         self.trackletId = tId
-            
+                
     # This function sets the type of polygon the tracklet is in
     def getPolType(self, t, polys):
         for j, pol in enumerate(polys):
             inOut = pol.poly.contains(geometry.Point(t.tlwh[0] + t.tlwh[2]/2, t.tlwh[1] + t.tlwh[3]))
             if(inOut):
+                print('Dentro de poligono')
                 self.polyType = pol.type
 
     def eventType(self, t):
@@ -31,7 +32,6 @@ class Event(object):
             pass
         elif(t.cl == 1): # If pedestrian
             if(self.polyType == 'road'):
-                print('QQQQQQQQQQQQQQQQQQQ')
                 self.category = 'Pedestrian on road'
                 self.severity = 'low'
                 self.alertFlag = True

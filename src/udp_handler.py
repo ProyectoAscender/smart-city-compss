@@ -148,11 +148,10 @@ def run_udp(
         if save_plot or view_plot:
 
             gst_str = (
-                    "udpsrc port=5001 multicast-group=239.255.12.42 auto-multicast=true ! "
-                    "application/x-rtp,media=video,clock-rate=90000,encoding-name=H264 ! "
-                    "rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! appsink"
+                        "udpsrc port=5001 multicast-group=239.255.12.42 auto-multicast=true ! "
+                        "application/x-rtp,media=video,clock-rate=90000,encoding-name=H264 ! "
+                        "rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! appsink"
                 )
-            
             
             cap = cv2.VideoCapture(gst_str, cv2.CAP_GSTREAMER)
             if not cap.isOpened():
@@ -172,7 +171,7 @@ def run_udp(
 
         if(semantics):
             polys = utils.getPolysRoi(ROI_PATH)
-            
+                
 
         ## LOOP ITERATING FRAMES:
         frame_idx = 0
@@ -189,7 +188,7 @@ def run_udp(
         # Prepare storage for bounding-box results
         results = []
         if (alerts): alertInfo = []
-        
+        print('xxxx')
         # We loop indefinitely or until some condition
         while frame_idx < NUM_ITERS:                            
             frame_idx += 1
@@ -250,25 +249,30 @@ def run_udp(
                 print('Actualizando tracker sin nuevas detecciones ')
             
             
-             
+            print('qqqq1')
+
             # Collect and write results if online targets is not empty
             online_tlwhs = []
             online_ids = []
             online_scores = []
             online_speeds = []
+            # online_flags = []
             for i, t in enumerate(online_targets):
-                tlwh = t.tlwh
-                tid = t.track_id
-                if tlwh[2] * tlwh[3] > min_box_area: 
-                    online_tlwhs.append(tlwh)
-                    online_ids.append(tid)
+                # tlwh = t.tlwh
+                # tid = t.track_id
+                if t.tlwh[2] * t.tlwh[3] > min_box_area: 
+                    online_tlwhs.append(t.tlwh)
+                    online_ids.append(t.track_id)
                     online_scores.append(t.score)
+                    print(str(t.event))
+                    # online_flags(t.event.alertFlag)
                     results.append(
-                        f"{frameId},{ts},{tid},{tlwh[0]:.2f},{tlwh[1]:.2f},{tlwh[2]:.2f},{tlwh[3]:.2f},{t.score:.2f},{t.cl},-1,-1,-1\n"
+                        f"{frameId},{ts},{t.track_id},{t.tlwh[0]:.2f},{t.tlwh[1]:.2f},{t.tlwh[2]:.2f},{t.tlwh[3]:.2f},{t.score:.2f},{t.cl},-1,-1,-1\n"
                     )
 
             timer_track.toc()
-            
+            print('qqqq2')
+
             timer_speed.tic()
             if (get_speed):
                 for t in online_targets:
@@ -290,48 +294,42 @@ def run_udp(
                         t.location = mapPoints
             timer_speed.toc()
                     # online_speeds.append()
-            
-            
+
+            print('qqqq')
             # Add alert to list
             timer_alerts.tic()
             if (semantics):
+                print('oooo')
                 for t in online_targets:
                     t.event = event.Event(t, polys, ts, frameId, t.track_id)
+                    print(f'holaaaaaa {t.event} aaaa')
                 if (alerts):
                     print(f'YYYY {t.event.alertFlag}')
                     if(t.event.alertFlag):
-                        print('XXXXXXXXXXXXXXXX')
-                        alertInfo.append(t.event)
+                        alertInfo.append(str(t.event))
                         mqtt_client.publish(MQTT_TOPIC, t.event.to_json(), qos=0)
             timer_alerts.toc()
 
-            # Save frame into video with box plotting
+            # Save or view frame into video with box plotting
             timer_video.tic()
-            if save_plot:
+            if save_plot or view_plot:
                 ret, frame = cap.read()
                 if not ret:
                     break
+                # online_im = plot_tracking(
+                #     frame, online_tlwhs, online_ids, online_flags,frame_id=frameId, fps= FPS,
+                # )
                 online_im = plot_tracking(
-                    frame, online_tlwhs, online_ids, frame_id=frameId, fps=1. / timer_track.average_time
+                    frame, online_targets, frame_id=frameId, fps= FPS,
                 )
                 # Save video
-                vid_writer.write(online_im)
-
-            # View frame with plot
-            if view_plot:
-                if not save_plot:
-                    ret, frame = cap.read()
-                    if not ret:
+                if save_plot: vid_writer.write(online_im)
+                # View frame with plot
+                if view_plot:
+                    # Show video
+                    cv2.imshow("Tracking", online_im)
+                    if cv2.waitKey(1) & 0xFF == ord('q'):
                         break
-                    online_im = plot_tracking(
-                        frame, online_tlwhs, online_ids, frame_id=frameId, fps=1. / timer_track.average_time
-                    )
-                # Show video
-                cv2.imshow("Tracking", online_im)
-                if cv2.waitKey(1) & 0xFF == ord('q'):
-                    break
-                
-                
             timer_video.toc()
 
 
