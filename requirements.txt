@@ -28,3 +28,9 @@ lap
 
 
 # opencv_python
+
+#semantics
+shapely
+
+#alerts
+paho-mqtt
