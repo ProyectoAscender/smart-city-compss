@@ -5,19 +5,19 @@ from src.timer import Timer
 from src.visualize import plot_tracking
 from trackers.multi_tracker_zoo import create_tracker
 from src.viewTransform import ViewTransformer
-from src import utils, event
+from src import utils, event, processing
 import numpy as np
 import shutil
 import time as tm
 import socket
 import signal
 import sys
-import paho.mqtt.client as mqtt
-
 
 from datetime import datetime
 
 import comm_udp as comm_udp
+
+from pycompss.api.api import compss_wait_on
 
 # Hardcoded values
 DEFAULT_FPS = 30
@@ -26,10 +26,9 @@ LOG_OUT_NAME = "out.txt"
 ALERTS_OUT_NAME = "alarm.txt"
 PMAT_DEST_PATH = "./pmat.txt"
 
-# MQTT broker config
-MQTT_BROKER_IP = "192.168.50.13"
-MQTT_BROKER_PORT = 31883
-MQTT_TOPIC = "alerts"
+
+# Get host IP
+HOST_IP = socket.gethostbyname(socket.gethostname())
 
 # Global flag for exiting the program gracefully
 FINISH_PROGRAM = False
@@ -40,8 +39,6 @@ def signal_handler(sig, frame):
     FINISH_PROGRAM = True
 
 signal.signal(signal.SIGINT, signal_handler)
-
-
 
 def run_udp(
         edge_ips=None,
@@ -62,7 +59,7 @@ def run_udp(
         get_speed = True,
         alerts = False
         ):
-    
+
     global FINISH_PROGRAM
     
     print("\n\n\n[udp_handler] Starting UDP-based tracking...")
@@ -70,7 +67,7 @@ def run_udp(
     # Convert edge_ips to a list if needed
     if isinstance(edge_ips, str):
         edge_ips = edge_ips.split(" ")
-        
+       
     
     # Maybe this should be inside the for loop? one tracker per edge device????
     # Create as many track instances as there are video sources
@@ -80,16 +77,16 @@ def run_udp(
     tracker = create_tracker(tracking_method, tracking_config, reid_weights)
     tracker_list.append(tracker, )
     
-        # Check MQTT if alerts are activated
-    if (alerts):
-        # MQTT broker connection
-        mqtt_client = mqtt.Client()
-        try:
-            mqtt_client.connect(MQTT_BROKER_IP, MQTT_BROKER_PORT)
-            print(f"[main.py] Successfully connected to MQTT broker at {MQTT_BROKER_IP}:{MQTT_BROKER_PORT}")
+    # Check MQTT if alerts are activated
+    # if (alerts):
+    #     # MQTT broker connection
+    #     mqtt_client = mqtt.Client()
+    #     try:
+    #         mqtt_client.connect(MQTT_BROKER_IP, MQTT_BROKER_PORT)
+    #         print(f"[main.py] Successfully connected to MQTT broker at {MQTT_BROKER_IP}:{MQTT_BROKER_PORT}")
 
-        except Exception as e:
-            print(f"[main.py] ERROR connecting to MQTT broker at {MQTT_BROKER_IP}:{MQTT_BROKER_PORT}: {e}")
+    #     except Exception as e:
+    #         print(f"[main.py] ERROR connecting to MQTT broker at {MQTT_BROKER_IP}:{MQTT_BROKER_PORT}: {e}")
 
     # For each Edge Device, do handshake, connect UDP
     # This could be parallel, so that each edge device is processed at once
@@ -144,9 +141,10 @@ def run_udp(
         img_info = [CAM_HEIGHT, CAM_WIDTH]
         test_size = (img_info[0], img_info[1]) # We don't want to re-scale yet
 
-        # Optinal saving or visualizing video stuff. Initialization.
-        if save_plot or view_plot:
-
+        # Optinal saving or visualizing video. Both ways requires get processed frames from camera-edge.
+        if view_plot or save_plot:
+            
+            # Gstreamer input from camera edge. ONLY sent frames.
             gst_str = (
                         "udpsrc port=5001 multicast-group=239.255.12.42 auto-multicast=true ! "
                         "application/x-rtp,media=video,clock-rate=90000,encoding-name=H264 ! "
@@ -157,45 +155,59 @@ def run_udp(
             if not cap.isOpened():
                 print("Failed to open GStreamer pipeline for receiving processed frames")
                 exit(1)
-        
+            print('Video receiving from camera-edge prepared')
             vid_fps = cap.get(cv2.CAP_PROP_FPS)
             FPS = vid_fps if int(vid_fps) > 0 else DEFAULT_FPS
-            
-            # Prepare video output
+        
+        # Prepare video save output
+        if save_plot:
             out_path = join(exp_dir, VIDEO_OUT_NAME)
             print(out_path)
             video_format = 'MP4V'
             fourcc = cv2.VideoWriter_fourcc(*video_format)
-            print(f'Saving video. Path: {out_path} | fps: {FPS} | resolution: {CAM_WIDTH}x{CAM_HEIGHT}')
             vid_writer = cv2.VideoWriter(out_path, fourcc, FPS, (CAM_WIDTH, CAM_HEIGHT))
-
+            print(f'Saving video. Path: {out_path} | fps: {FPS} | resolution: {CAM_WIDTH}x{CAM_HEIGHT}')
+        
+        # View_plot if has display and x11 will be show. But if no display will be re-sent.
+        # Re-send inicialization:
+        if view_plot and os.environ.get("DISPLAY") is None:
+            gst_out_str = (
+                            "appsrc ! videoconvert ! x264enc tune=zerolatency bitrate=500 speed-preset=ultrafast ! "
+                            "rtph264pay config-interval=1 pt=96 ! "
+                            f"udpsink host={HOST_IP} port=6000"  # Cambia IP/puerto según necesidad
+                            )
+            vid_sender = cv2.VideoWriter(gst_out_str, cv2.CAP_GSTREAMER, 0, FPS, (CAM_WIDTH, CAM_HEIGHT), True)
+            if not vid_sender.isOpened():
+                print("Failed to open output GStreamer pipeline")
+                exit(1)
+            print(f'Video saving prepared to {HOST_IP} ')
+                
+        # If semantics enabled, load polygons:
         if(semantics):
             polys = utils.getPolysRoi(ROI_PATH)
-                
-
-        ## LOOP ITERATING FRAMES:
+    
+        # Time inicialization
         frame_idx = 0
-        timer_track = Timer()
-        timer_reception = Timer()
-        timer_wait_recv = Timer()
-        timer_speed = Timer()
-        timer_video = Timer()
-        timer_alerts = Timer()
-        
+        timers = {name: Timer() for name in ['track', 'reception', 'wait_recv', 'processing', 'speed', 'video', 'semantics', 'total']}
+                
+        # Variable inicialization:
         hex_data = ""
         skiped_frames = 0
-
+        
         # Prepare storage for bounding-box results
         results = []
         if (alerts): alertInfo = []
-        print('xxxx')
+        
+        
+        ## LOOP ITERATING FRAMES:
         # We loop indefinitely or until some condition
-        while frame_idx < NUM_ITERS:                            
+        while frame_idx < NUM_ITERS:  
+            timers['total'].tic()                          
             frame_idx += 1
-            
+
             # Loop to get the last message
             udpSock.setblocking(False)
-            timer_wait_recv.tic()
+            timers['wait_recv'].tic()
             while True:
                 if FINISH_PROGRAM:
                     break   
@@ -207,14 +219,14 @@ def run_udp(
                         # print("[main.py] No bounding box data, continuing...")
                         continue
 
-                    timer_wait_recv.toc()
+                    timers['wait_recv'].toc()
                     break
             
             udpSock.setblocking(True)
             if FINISH_PROGRAM:
                 break
             
-            timer_reception.tic()
+            timers['reception'].tic()
         
             # Decode the message as per our template            
             frameData = list(comm_udp.decode_hex_bboxes(hex_data))      
@@ -228,11 +240,11 @@ def run_udp(
                 # Detections to numpy array [x,y,w,h,score,classId]
                 det = np.asarray([box[-6:] for box in frameData]) 
             
-            timer_reception.toc()
+            timers['reception'].toc()
 
-            print(f"Processing Frame {frameId} with time stamp: {ts}")
+            # print(f"Processing Frame {frameId} with time stamp: {ts}")
 
-            timer_track.tic()
+            timers['track'].tic()
 
             ## TRACKING
             # Frames con detecciones
@@ -246,17 +258,15 @@ def run_udp(
                 for track in tracker_list[0].tracked_stracks:
                     track.frames_since_update += 1  # Incrementamos contador de no actualización
                 online_targets = []            
-                print('Actualizando tracker sin nuevas detecciones ')
+                #print('Actualizando tracker sin nuevas detecciones ')
             
-            
-            print('qqqq1')
-
             # Collect and write results if online targets is not empty
             online_tlwhs = []
             online_ids = []
             online_scores = []
             online_speeds = []
-            # online_flags = []
+            
+            # Add track info to results 
             for i, t in enumerate(online_targets):
                 # tlwh = t.tlwh
                 # tid = t.track_id
@@ -264,54 +274,80 @@ def run_udp(
                     online_tlwhs.append(t.tlwh)
                     online_ids.append(t.track_id)
                     online_scores.append(t.score)
-                    print(str(t.event))
                     # online_flags(t.event.alertFlag)
                     results.append(
                         f"{frameId},{ts},{t.track_id},{t.tlwh[0]:.2f},{t.tlwh[1]:.2f},{t.tlwh[2]:.2f},{t.tlwh[3]:.2f},{t.score:.2f},{t.cl},-1,-1,-1\n"
                     )
 
-            timer_track.toc()
-            print('qqqq2')
+            timers['track'].toc()
+            
+            # futures = []
+            # online_targets2 = []
+            # for t in online_targets:
+            #     futures.append(processing.process_tracklets(t, view_transformer, timers, semantics,
+            #                                                 get_speed , alerts ,
+            #                                                 FPS if "FPS" in vars() else DEFAULT_FPS,
+            #                                                 polys, ts, frameId))
 
-            timer_speed.tic()
-            if (get_speed):
-                for t in online_targets:
-                    # Update tracklet latest 2 locations
-                    mapPoints = view_transformer.transform_points(points = t.to_bc()[0:2])#.astype(int)
-                    if t.location is not None: 
-                        print(f'Track id {t.track_id} en if {mapPoints}')
-                        t.prev_location = t.location
-                        t.location = mapPoints
-                        # Calculate speed
-                        distance = np.square(np.sum((np.power(abs(t.location - t.prev_location),2))))
-                        time = 1 / (FPS if "FPS" in vars() else DEFAULT_FPS)
-                        speed = (distance / time) * 3.6
-                        t.speeds = np.append(t.speeds, speed)
-                        online_speeds.append(f"#{t.track_id} {t.speeds[-1].astype(int)} km/h /n") # 
-                        # print(online_speeds)
-                    else:
-                        print(f'Track id {t.track_id} en else {mapPoints}')
-                        t.location = mapPoints
-            timer_speed.toc()
-                    # online_speeds.append()
+            # results = compss_wait_on(futures)
+            
+            # for result in results:
+            #     tModified, alertInfo_task, online_speeds_task, t_speed, t_semantics = result
+            #     print(f'Process tracklets ending. tModified: {tModified.event.alertFlag}')
+            #     print(f'alertInfo_task: {alertInfo_task}')
+            #     print(f'online_speeds_task: {online_speeds_task}')
 
-            print('qqqq')
-            # Add alert to list
-            timer_alerts.tic()
-            if (semantics):
-                print('oooo')
-                for t in online_targets:
-                    t.event = event.Event(t, polys, ts, frameId, t.track_id)
-                    print(f'holaaaaaa {t.event} aaaa')
-                if (alerts):
-                    print(f'YYYY {t.event.alertFlag}')
-                    if(t.event.alertFlag):
-                        alertInfo.append(str(t.event))
-                        mqtt_client.publish(MQTT_TOPIC, t.event.to_json(), qos=0)
-            timer_alerts.toc()
 
+            #     alertInfo.append(alertInfo_task)
+            #     online_speeds.append(online_speeds_task)
+            #     online_targets2.append(tModified)
+            timers['processing'].tic()
+            results = []
+            for t in online_targets:
+                tModified , alertInfo_task, online_speeds_task,  t_speed, t_semantics = processing.process_tracklets(t, view_transformer, timers, semantics, 
+                                                                get_speed , alerts , (FPS if "FPS" in vars() else DEFAULT_FPS),
+                                                                polys, ts, frameId) 
+                print(f'XX tModified before append to results: {tModified}')
+                results.append((tModified , alertInfo_task, online_speeds_task,  t_speed, t_semantics))
+                print(f'XX results : {results}')
+                
+            for i, result in enumerate(results):
+                try:
+                    print('XX compss_wait_on...')
+                    tModified = compss_wait_on(result[0])
+                    alertInfo_task = compss_wait_on(result[1])
+                    online_speeds_task = compss_wait_on(result[2])
+                    t_speed = compss_wait_on(result[3])
+                    t_semantics = compss_wait_on(result[4])
+
+                    online_targets[i] = tModified
+                    print(f'XX online_targets after wait: {online_targets[i]}')
+                    alertInfo.append(alertInfo_task)
+                    online_speeds.append(online_speeds_task)
+                    timers['speed'].toc(value=t_speed)
+                    timers['semantics'].toc(value=t_semantics) 
+
+                except Exception as e:
+                    print(f"Error receiving compss data: {e}")
+                    sys.exit(1)
+            timers['processing'].toc()
+
+            # tModified = compss_wait_on(tModified)
+            # print(f'tModified after wait: {tModified}')
+            # print(f'tModified after wait flag: {tModified.event.alertFlag}')
+
+            # alertInfo_task = compss_wait_on(alertInfo_task)
+            # online_speeds_task = compss_wait_on(online_speeds_task)
+            # t_speed = compss_wait_on(t_speed)
+            # t_semantics = compss_wait_on(t_semantics)
+            # online_targets = compss_wait_on(tModified)
+
+            # print(f"XXXXX {t_semantics}")
+            # alertInfo.extend(alertInfo_task)
+            # online_speeds.extend(online_speeds_task)
             # Save or view frame into video with box plotting
-            timer_video.tic()
+            
+            timers['video'].tic()
             if save_plot or view_plot:
                 ret, frame = cap.read()
                 if not ret:
@@ -319,34 +355,26 @@ def run_udp(
                 # online_im = plot_tracking(
                 #     frame, online_tlwhs, online_ids, online_flags,frame_id=frameId, fps= FPS,
                 # )
+                
                 online_im = plot_tracking(
                     frame, online_targets, frame_id=frameId, fps= FPS,
                 )
-                # Save video
-                if save_plot: vid_writer.write(online_im)
-                # View frame with plot
-                if view_plot:
-                    # Show video
-                    cv2.imshow("Tracking", online_im)
-                    if cv2.waitKey(1) & 0xFF == ord('q'):
-                        break
-            timer_video.toc()
-
-
-            if frame_idx % 90 == 0:
-                print(f'Processing frame {frame_idx}')
-                print(f'\t- Avg. Reception Time: {timer_reception.average_time}')
-                print(f'\t- Avg. Waiting Time: {timer_wait_recv.average_time}')                
-                print(f'\t- Avg. Tracking Time: {timer_track.average_time}')
-                print(f'\t- Avg. Speed Time: {timer_speed.average_time}')
-                print(f'\t- Avg. Video Time: {timer_video.average_time}')
-                print(f'\t- Avg. Alerts Time: {timer_alerts.average_time}')
-                timer_track.clear()
-                timer_speed.clear()
-                timer_video.clear()
-                timer_reception.clear()
-                timer_wait_recv.clear()
-                timer_alerts.clear()
+            # Save video
+            if save_plot: vid_writer.write(online_im)
+            
+            # View frame with plot
+            if view_plot and os.environ.get("DISPLAY") is not None:
+                # Show video
+                cv2.imshow("Tracking", online_im)
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    break
+            elif view_plot and os.environ.get("DISPLAY") is None:
+                # Send video (rtp)
+                print(f'Sending trough rtp {HOST_IP} port 6000 with resolution {online_im.shape[:2]}')
+                assert online_im.dtype == np.uint8 and online_im.shape[2] == 3
+                vid_sender.write(online_im)
+                
+            timers['video'].toc()
 
             if frameId != frame_idx and frameId - frame_idx != skiped_frames:
                 skiped_frames = frameId - frame_idx
@@ -354,6 +382,20 @@ def run_udp(
                 # break
 
             hex_data = ""
+            timers['total'].toc() 
+            
+            
+            if frame_idx % 10 == 0:
+                print(f'Info every 10 frames - frameidx: {frame_idx}')
+                for name, timer in timers.items():
+                    print(f'\t- Avg. {name.capitalize()} Time: {timer.average_time}')
+                    timer.clear()
+            
+            print(f"XX Finishing iter {frame_idx} ")
+            
+            # We end loop if not new frames are going to arrive
+            if frameId >= NUM_ITERS: break
+
         # WHILE ENDED
 
         print(f"\n\n\tSmartCity skipped a total of {frameId - frame_idx} frames.")
@@ -377,20 +419,15 @@ def run_udp(
             cap.release()
             vid_writer.release()
             cv2.destroyAllWindows()
-
+        
+        print("About to close udp")
         udpSock.close()
         print(f"[main.py] Done receiving from {edge_device}.\n")
 
         if(alerts):
+            print("About to close mqtt")
             # MQTT client disconnect
-            try:
-                mqtt_client.disconnect()
-                print(f"[main.py] Done closing connection with MQTT broker.\n")
-            except Exception as e:
-                print(f"[main.py] ERROR disconnecting from MQTT broker: {e}")
-
-
-            
+            processing.mqttClose()
 
 def main_udp(opt):
     global FINISH_PROGRAM

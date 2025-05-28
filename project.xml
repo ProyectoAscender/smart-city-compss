@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Project>
+  <MasterNode>
+  </MasterNode>
+
+  <ComputeNode Name="smartcity-compss-worker-0">
+    <InstallDir>/opt/COMPSs/</InstallDir>
+    <WorkingDir>/tmp/worker0</WorkingDir>
+  </ComputeNode>
+ 
+</Project>

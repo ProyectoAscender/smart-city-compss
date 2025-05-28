@@ -6,6 +6,9 @@ import sys
 import shutil
 
 
+OPENCV_VIDEOIO_DEBUG=1
+
+
 # IDK what this does
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir))
 srcROOT = ROOT + '/src/' 

@@ -1,6 +1,11 @@
 from shapely import geometry
 import json
 
+# from pycompss.api.parameter import *
+# from pycompss.api.task import task
+# from pycompss.api.api import compss_barrier, compss_wait_on
+# from pycompss.api.constraint import constraint
+
 class Event(object):
 
     ts = None
@@ -17,17 +22,16 @@ class Event(object):
         self.getPolType(t, polys)
         self.eventType(t)
         self.trackletId = tId
-                
+                                
     # This function sets the type of polygon the tracklet is in
+#    @task()
     def getPolType(self, t, polys):
         for j, pol in enumerate(polys):
             inOut = pol.poly.contains(geometry.Point(t.tlwh[0] + t.tlwh[2]/2, t.tlwh[1] + t.tlwh[3]))
             if(inOut):
-                print('Dentro de poligono')
                 self.polyType = pol.type
 
     def eventType(self, t):
-        print('Q')
         if(t.cl == 0): # If car
             pass
         elif(t.cl == 1): # If pedestrian
