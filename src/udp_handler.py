@@ -12,6 +12,7 @@ import time as tm
 import socket
 import signal
 import sys
+import time
 
 from datetime import datetime
 
@@ -137,7 +138,6 @@ def run_udp(
             # os.system('cp -u' + PMAT_PATH + ' ./pmat.txt')
         
         view_transformer = ViewTransformer(pmatPath = "./pmat.txt")
-
         img_info = [CAM_HEIGHT, CAM_WIDTH]
         test_size = (img_info[0], img_info[1]) # We don't want to re-scale yet
 
@@ -146,19 +146,22 @@ def run_udp(
             
             # Gstreamer input from camera edge. ONLY sent frames.
             gst_str = (
-                        "udpsrc port=5001 multicast-group=239.255.12.42 auto-multicast=true ! "
-                        "application/x-rtp,media=video,clock-rate=90000,encoding-name=H264 ! "
-                        "rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! appsink"
-                )
+                "udpsrc port=5001 multicast-group=239.255.12.41 auto-multicast=true ! "
+                "application/x-rtp,media=video,clock-rate=90000,encoding-name=H264 ! "
+                "rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! "
+                "queue max-size-buffers=1 leaky=downstream ! "
+                "appsink sync=false drop=true max-size-buffers=1 leaky=downstream sync=false"
+            )
             
             cap = cv2.VideoCapture(gst_str, cv2.CAP_GSTREAMER)
+            
             if not cap.isOpened():
                 print("Failed to open GStreamer pipeline for receiving processed frames")
                 exit(1)
             print('Video receiving from camera-edge prepared')
             vid_fps = cap.get(cv2.CAP_PROP_FPS)
             FPS = vid_fps if int(vid_fps) > 0 else DEFAULT_FPS
-        
+
         # Prepare video save output
         if save_plot:
             out_path = join(exp_dir, VIDEO_OUT_NAME)
@@ -171,12 +174,16 @@ def run_udp(
         # View_plot if has display and x11 will be show. But if no display will be re-sent.
         # Re-send inicialization:
         if view_plot and os.environ.get("DISPLAY") is None:
+
             gst_out_str = (
-                            "appsrc ! videoconvert ! x264enc tune=zerolatency bitrate=500 speed-preset=ultrafast ! "
-                            "rtph264pay config-interval=1 pt=96 ! "
-                            f"udpsink host={HOST_IP} port=6000"  # Cambia IP/puerto según necesidad
+                            "appsrc ! videoconvert ! video/x-raw,format=NV12 ! nvvidconv ! video/x-raw(memory:NVMM),format=NV12 !" 
+                            "nvv4l2h264enc insert-sps-pps=true iframeinterval=5 idrinterval=5 control-rate=1 bitrate=1000000 !" 
+                            "h264parse ! rtph264pay config-interval=1 pt=96 ! "
+                            "udpsink host=239.255.12.42 port=5002 auto-multicast=true sync=0"  # Cambia IP/puerto según necesidad
                             )
+            
             vid_sender = cv2.VideoWriter(gst_out_str, cv2.CAP_GSTREAMER, 0, FPS, (CAM_WIDTH, CAM_HEIGHT), True)
+            
             if not vid_sender.isOpened():
                 print("Failed to open output GStreamer pipeline")
                 exit(1)
@@ -199,7 +206,7 @@ def run_udp(
         if (alerts): alertInfo = []
         
         
-        ## LOOP ITERATING FRAMES:
+        ######################### LOOP ITERATING FRAMES ########################
         # We loop indefinitely or until some condition
         while frame_idx < NUM_ITERS:  
             timers['total'].tic()                          
@@ -211,8 +218,11 @@ def run_udp(
             while True:
                 if FINISH_PROGRAM:
                     break   
-                try:
+                try: 
+                    # Receiving boxes
                     hex_data, address = udpSock.recvfrom(16000)  # bigger buffer if needed
+                    
+                        
                     
                 except BlockingIOError as b:
                     if(hex_data==""):   # hex_data is set to "" at the end of the processing loop
@@ -221,6 +231,8 @@ def run_udp(
 
                     timers['wait_recv'].toc()
                     break
+                
+                
             
             udpSock.setblocking(True)
             if FINISH_PROGRAM:
@@ -228,9 +240,17 @@ def run_udp(
             
             timers['reception'].tic()
         
+            # Receiving frame if needed
+            if save_plot or view_plot:
+                ret, frame = cap.read()
+                if not ret:
+                    print("No hay captura. Salto siguiente iter.")
+                    break
+                # cv2.imwrite(f"./{frame_idx}_received.jpg", frame)
+                
+            
             # Decode the message as per our template            
             frameData = list(comm_udp.decode_hex_bboxes(hex_data))      
-            
             frameId = frameData[0][2]
             ts = frameData[0][3]
 
@@ -239,10 +259,10 @@ def run_udp(
             if (len(frameData[0]) > 4):
                 # Detections to numpy array [x,y,w,h,score,classId]
                 det = np.asarray([box[-6:] for box in frameData]) 
-            
+            else:
+                print('We have got 0 detections')
+                
             timers['reception'].toc()
-
-            # print(f"Processing Frame {frameId} with time stamp: {ts}")
 
             timers['track'].tic()
 
@@ -264,7 +284,7 @@ def run_udp(
             online_tlwhs = []
             online_ids = []
             online_scores = []
-            online_speeds = []
+            if (get_speed): online_speeds = []
             
             # Add track info to results 
             for i, t in enumerate(online_targets):
@@ -278,87 +298,52 @@ def run_udp(
                     results.append(
                         f"{frameId},{ts},{t.track_id},{t.tlwh[0]:.2f},{t.tlwh[1]:.2f},{t.tlwh[2]:.2f},{t.tlwh[3]:.2f},{t.score:.2f},{t.cl},-1,-1,-1\n"
                     )
+                else:
+                    print(" Tracklet discarded because box size")
 
             timers['track'].toc()
             
-            # futures = []
-            # online_targets2 = []
-            # for t in online_targets:
-            #     futures.append(processing.process_tracklets(t, view_transformer, timers, semantics,
-            #                                                 get_speed , alerts ,
-            #                                                 FPS if "FPS" in vars() else DEFAULT_FPS,
-            #                                                 polys, ts, frameId))
-
-            # results = compss_wait_on(futures)
-            
-            # for result in results:
-            #     tModified, alertInfo_task, online_speeds_task, t_speed, t_semantics = result
-            #     print(f'Process tracklets ending. tModified: {tModified.event.alertFlag}')
-            #     print(f'alertInfo_task: {alertInfo_task}')
-            #     print(f'online_speeds_task: {online_speeds_task}')
-
-
-            #     alertInfo.append(alertInfo_task)
-            #     online_speeds.append(online_speeds_task)
-            #     online_targets2.append(tModified)
             timers['processing'].tic()
-            results = []
+            futures = []
             for t in online_targets:
-                tModified , alertInfo_task, online_speeds_task,  t_speed, t_semantics = processing.process_tracklets(t, view_transformer, timers, semantics, 
+                tModified , alertInfo_thread, online_speeds_thread,  t_speed_thread, t_semantics_thread = processing.process_tracklets(t, view_transformer, timers, semantics, 
                                                                 get_speed , alerts , (FPS if "FPS" in vars() else DEFAULT_FPS),
                                                                 polys, ts, frameId) 
-                print(f'XX tModified before append to results: {tModified}')
-                results.append((tModified , alertInfo_task, online_speeds_task,  t_speed, t_semantics))
-                print(f'XX results : {results}')
+                futures.append((tModified , alertInfo_thread, online_speeds_thread,  t_speed_thread, t_semantics_thread))
                 
-            for i, result in enumerate(results):
+            for i, future in enumerate(futures):
                 try:
-                    print('XX compss_wait_on...')
-                    tModified = compss_wait_on(result[0])
-                    alertInfo_task = compss_wait_on(result[1])
-                    online_speeds_task = compss_wait_on(result[2])
-                    t_speed = compss_wait_on(result[3])
-                    t_semantics = compss_wait_on(result[4])
+                    # print('XX compss_wait_on...')
+                    online_targets[i] = compss_wait_on(future[0])
+                    alertInfo_task = compss_wait_on(future[1])
+                    online_speeds_task = compss_wait_on(future[2])
+                    t_speed_task = compss_wait_on(future[3])
+                    t_semantics_task = compss_wait_on(future[4])
 
-                    online_targets[i] = tModified
-                    print(f'XX online_targets after wait: {online_targets[i]}')
-                    alertInfo.append(alertInfo_task)
-                    online_speeds.append(online_speeds_task)
-                    timers['speed'].toc(value=t_speed)
-                    timers['semantics'].toc(value=t_semantics) 
+                    # print(f'XX Task output: {online_targets[i]} {alertInfo_task} {online_speeds_task} {t_speed_task} {t_semantics_task}')
+                    if(alerts):
+                        alertInfo.append(alertInfo_task)
+                    if(get_speed):
+                        online_speeds.append(online_speeds_task)
+                    
+                    timers['speed'].toc(value=t_speed_task)
+                    timers['semantics'].toc(value=t_semantics_task) 
 
                 except Exception as e:
                     print(f"Error receiving compss data: {e}")
                     sys.exit(1)
             timers['processing'].toc()
 
-            # tModified = compss_wait_on(tModified)
-            # print(f'tModified after wait: {tModified}')
-            # print(f'tModified after wait flag: {tModified.event.alertFlag}')
-
-            # alertInfo_task = compss_wait_on(alertInfo_task)
-            # online_speeds_task = compss_wait_on(online_speeds_task)
-            # t_speed = compss_wait_on(t_speed)
-            # t_semantics = compss_wait_on(t_semantics)
-            # online_targets = compss_wait_on(tModified)
-
-            # print(f"XXXXX {t_semantics}")
-            # alertInfo.extend(alertInfo_task)
-            # online_speeds.extend(online_speeds_task)
-            # Save or view frame into video with box plotting
-            
             timers['video'].tic()
+
+            # Plotting video
             if save_plot or view_plot:
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                # online_im = plot_tracking(
-                #     frame, online_tlwhs, online_ids, online_flags,frame_id=frameId, fps= FPS,
-                # )
-                
                 online_im = plot_tracking(
                     frame, online_targets, frame_id=frameId, fps= FPS,
                 )
+                # online_im = plot_tracking(
+                #     frame, online_tlwhs, online_ids, online_flags,frame_id=frameId, fps= FPS,
+                # )
             # Save video
             if save_plot: vid_writer.write(online_im)
             
@@ -370,10 +355,12 @@ def run_udp(
                     break
             elif view_plot and os.environ.get("DISPLAY") is None:
                 # Send video (rtp)
-                print(f'Sending trough rtp {HOST_IP} port 6000 with resolution {online_im.shape[:2]}')
                 assert online_im.dtype == np.uint8 and online_im.shape[2] == 3
+                print(f'Sending trough rtp {HOST_IP} port 6000 with resolution {online_im.shape[:2]}')
                 vid_sender.write(online_im)
-                
+                # print(f"WW2 {frameId}")
+                # cv2.imwrite(f"./{frameId}.jpg", frame)
+
             timers['video'].toc()
 
             if frameId != frame_idx and frameId - frame_idx != skiped_frames:
@@ -391,7 +378,7 @@ def run_udp(
                     print(f'\t- Avg. {name.capitalize()} Time: {timer.average_time}')
                     timer.clear()
             
-            print(f"XX Finishing iter {frame_idx} ")
+            print(f"-- Finishing iter {frame_idx} ")
             
             # We end loop if not new frames are going to arrive
             if frameId >= NUM_ITERS: break
@@ -412,7 +399,7 @@ def run_udp(
             print(f"Savedir: {alarm_file}")
             with open(alarm_file, 'w') as f:
                 f.writelines(alertInfo)
-            print(f"save results to {alarm_file}")
+            print(f"save alarms to {alarm_file}")
 
         if save_plot: 
             print(f"Releasing video...")
@@ -451,7 +438,6 @@ def main_udp(opt):
         track_buffer=opt.track_buffer,
         match_thresh=opt.match_thresh,
         min_box_area=opt.min_box_area,
-        reid_weights=opt.reid_weights,
         tracking_method=opt.tracking_method,
         tracking_config=opt.tracking_config,
         exp_dir=opt.exp_dir,
@@ -463,3 +449,4 @@ def main_udp(opt):
         semantics=opt.semantics,
         alerts=opt.alerts
         )
+        # reid_weights=opt.reid_weights,

@@ -115,7 +115,7 @@ def plot_tracking(image, online_targets, frame_id=0, fps=0., ids2=None):
     line_thickness = 3
 
     radius = max(5, int(im_w/140.))
-    cv2.putText(im, 'frame: %d fps: %.2f' % (frame_id, fps),
+    cv2.putText(im, 'SC - FrameId: %d fps: %.2f' % (frame_id, fps),
                 (0, int(15 * text_scale)), cv2.FONT_HERSHEY_PLAIN, 2, (0, 0, 255), thickness=2)
 
     alertCounter = 0
@@ -132,15 +132,14 @@ def plot_tracking(image, online_targets, frame_id=0, fps=0., ids2=None):
         # Plot alerts bottom left if exists
         if (t.event.alertFlag): 
             line_thickness *= 2
-            alertCounter = 0
             
-            label = f'{t.event.category} - {t.event.severity}'
+            label = f'{t.event.category} - {t.event.severity} - {t.track_id}'
             print(f'Printing label: {label}')
             alertCounter += 1
             alertX = alertXInit
             alertY = alertYInit - (alertCounter * 25)
             # print(f'{frameNum} {alertType} {alertCategory} {severity} {description} {alertId}')
-            cv2.putText(im, label, (alertX, alertY), cv2.FONT_HERSHEY_SIMPLEX, .6, (255, 255, 255), 2, cv2.LINE_AA)
+            cv2.putText(im, label, (alertX, alertY), cv2.FONT_HERSHEY_SIMPLEX, .9, (0, 0, 255), 2, cv2.LINE_AA)
 
 
         # Plot detection boxes

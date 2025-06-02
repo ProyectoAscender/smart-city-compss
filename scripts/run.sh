@@ -6,5 +6,5 @@
 # wait $bg_pid && echo "waiting job seconds: $SECONDS" && \
 # rsync -uazPt *.in ~/data/florencia/batoni/logs
 
-
-python3 src/main.py  --edge_ips=agx13:8882 --mode='udp' --semantics=True --save_plot=True
+export PYTHONPATH=$COMPSS_HOME/Bindings/python/3:$PYTHONPATH
+python3 src/main.py  --edge_ips=agx13:8883 --mode='udp' --semantics=True --save_plot=True --view_plot=True 

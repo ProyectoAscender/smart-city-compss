@@ -21,10 +21,8 @@ try:
 except Exception as e:
     alerts = False
     print(f"[main.py] ERROR connecting to MQTT broker at {MQTT_BROKER_IP}:{MQTT_BROKER_PORT}: {e}")
-    
 
 def speed_task(t, view_transformer, FPS):
-
     # Update tracklet latest 2 locations
     mapPoints = view_transformer.transform_points(points = t.to_bc()[0:2])#.astype(int)
     if t.location is not None: 
@@ -36,24 +34,21 @@ def speed_task(t, view_transformer, FPS):
         speed = (distance / time) * 3.6
         t.speeds = np.append(t.speeds, speed)
         online_speeds = f"#{t.track_id} {t.speeds[-1].astype(int)} km/h /n" # 
-        # print(online_speeds)
     else:
-        print(f'Track id {t.track_id} en else {mapPoints}')
         t.location = mapPoints
-        online_speeds = []
+        online_speeds = f"#{t.track_id} --No map points-- km/h /n"
         
     return t, online_speeds
 
 def semantics_task(t, polys, ts , frameId, alerts):
     t.event = event.Event(t, polys, ts, frameId, t.track_id)
     # t.event = compss_wait_on(t.event)
-    print(f"XXX alerts: {t.event}")
     if (alerts):
         if(t.event.alertFlag):
             alertInfo= str(t.event)
             mqtt_client.publish(MQTT_TOPIC, t.event.to_json(), qos=0)
             return t, alertInfo
-    return t, []
+    return t, "No alerts"
 
 @task(returns=5)
 def process_tracklets(t, view_transformer, timers, semantics, get_speed , alerts ,
@@ -62,13 +57,17 @@ def process_tracklets(t, view_transformer, timers, semantics, get_speed , alerts
     # get speed of tracklets
     t_i = time.time()
     if (get_speed):
-        t, online_speeds = speed_task(t, view_transformer, FPS)  
+        t, online_speeds = speed_task(t, view_transformer, FPS)
+    else:
+        online_speeds = "# Speed disabled"
     t_speed = time.time() - t_i
 
     # Check semantics and send alerts
     t_i = time.time()
     if (semantics): 
         t, alertInfo = semantics_task(t, polys, ts, frameId, alerts)
+    else:
+        alertInfo = "Semantics disabled."
     t_semantics = time.time() - t_i
 
     return t, alertInfo, online_speeds, t_speed, t_semantics
