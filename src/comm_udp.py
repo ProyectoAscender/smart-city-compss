@@ -30,7 +30,8 @@ def handshake_and_get_info(udpSock, host, port, max_retries, retry_delay):
 
     @return dict Returns a dictionary containing camera information:
                  - "cam_id": Camera ID as a string.
-                 - "gstreamer": GStreamer flag (integer).
+                 - "multicast": Multicast flag (integer).
+                 - "neverend": Run continously without end(integer).
                  - "frames_to_process": Total number of frames to process (integer).
                  - "cam_height": Camera frame height (integer).
                  - "cam_width": Camera frame width (integer).
@@ -40,7 +41,7 @@ def handshake_and_get_info(udpSock, host, port, max_retries, retry_delay):
     @throws Exception    If any unexpected error occurs during the handshake process.
 
     @note The function assumes the server sends the following camera info in the format:
-          "Sent  UDP: |<cam_id>|<gstreamer>|<frames_to_process>|<height>|<width>|<data_path>"
+          "Sent  UDP: |<cam_id>|<multicast>|<neverend>|<frames_to_process>|<height>|<width>|<data_path>"
           
     """
     
@@ -73,14 +74,15 @@ def handshake_and_get_info(udpSock, host, port, max_retries, retry_delay):
                 resp = data.decode('utf-8', errors='ignore')
                 print(f"[udp_handler] Received from: {address}, camera info: {resp}")
 
-                # e.g. "Sent  UDP: |1112|1|200|720|1280|/path/to/data"
+                # e.g. "Sent  UDP: |1112|0|1|200|720|1280|/path/to/data"
                 parts = resp.split("|")
                 cam_id = parts[1]
-                gstreamer = int(parts[2])
-                frames_to_process = int(parts[3])
-                height = int(parts[4])
-                width  = int(parts[5])
-                data_path = parts[6]
+                multicast = int(parts[2])
+                neverend = int(parts[3])
+                frames_to_process = int(parts[4])
+                height = int(parts[5])
+                width  = int(parts[6])
+                data_path = parts[7]
                 
                 # Send an ACK
                 udpSock.sendto(b"ACK", serverAddr)
@@ -89,7 +91,8 @@ def handshake_and_get_info(udpSock, host, port, max_retries, retry_delay):
                 # Return the content of the camera message
                 return {
                     "cam_id": cam_id,
-                    "gstreamer": gstreamer,
+                    "multicast": multicast,
+                    "neverend": neverend,
                     "frames_to_process": frames_to_process,
                     "cam_height": height,
                     "cam_width": width,
@@ -136,15 +139,25 @@ def decode_hex_bboxes(hex_data):
     
     if not hex_data:
         return []
-    # Get hex payload
-    dataB = bytes.fromhex(hex_data.decode())
+    try:
+        # Get hex payload
+        dataB = bytes.fromhex(hex_data.decode())
+    except Exception:
+        return [] # this case hex data has failed because of failed format
+    
     # Try to decode with or without boxes
     try:
-        format_string = ">?4shQhhhhfh"
+        format_string = ">?4sIQhhhhfh"
         unpacked_data = struct.iter_unpack(format_string, dataB)
     except struct.error as e:
-        print(f"Error con formato {format_string}: {e} , trying no boxes format...")
-        format_string = ">?4shQ"
-        unpacked_data = struct.iter_unpack(format_string, dataB)
+        print(f"Error con formato {format_string}: {e} , trying no boxes format... for {dataB}")
+        try:
+            format_string = ">?4shQ"
+            unpacked_data = struct.iter_unpack(format_string, dataB)
+            
+        except struct.error as e: 
+            print(f"Error con formato {format_string}: {e} , decode_hex_bboxes can't decode {dataB}")
+            return []
+
 
     return unpacked_data

@@ -3,6 +3,8 @@ from pathlib import Path
 import json
 from shapely.geometry import Polygon
 from poly import PolySemantic
+
+from datetime import datetime
  
 
  
@@ -89,3 +91,18 @@ def getPolysRoi(json_path):
                 region_id_counter += 1  # incrementa el contador
 
     return poly_list
+
+def save_results(results, exp_dir, CAM_ID):
+    
+    folder_path = os.path.join(exp_dir, 
+                               datetime.now().strftime("%Y%m%d"), 
+                               CAM_ID, 
+                               datetime.now().strftime("%H%M%S"))
+    
+    os.makedirs(folder_path, exist_ok=True)
+    res_file = os.path.join(folder_path, "tracklets.txt")
+
+    print(f" - Saving to {res_file}")
+    with open(res_file, 'w') as f:
+        f.writelines(results)
+    print(f" - Saved results to {res_file}")

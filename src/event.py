@@ -33,12 +33,33 @@ class Event(object):
 
     def eventType(self, t):
         if(t.cl == 0): # If car
-            pass
+            if(self.polyType == 'tramway'):
+                self.category = 'Car on tramway'
+                self.severity = 'low'
+                self.alertFlag = True
         elif(t.cl == 1): # If pedestrian
             if(self.polyType == 'road'):
                 self.category = 'Pedestrian on road'
                 self.severity = 'low'
                 self.alertFlag = True
+            elif(self.polyType == 'tramway'):
+                self.category = 'Pedestrian on tramway'
+                self.severity = 'low'
+                self.alertFlag = True
+        elif(t.cl == 5 or t.cl == 4): # Bikes
+                if(self.polyType == 'tramway') :
+                    self.category = 'Bike on tramway'
+                    self.severity = 'low'
+                    self.alertFlag = True
+        elif(t.cl == 6): # Motorbikes
+            if(self.polyType == 'tramway') :
+                self.category = 'Moto on tramway'
+                self.severity = 'low'
+                self.alertFlag = True
+            
+            
+
+            
 
     def __str__(self):
         return (

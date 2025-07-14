@@ -101,7 +101,7 @@ def get_color(idx):
 #     return im
 
 
-def plot_tracking(image, online_targets, frame_id=0, fps=0., ids2=None):
+def plot_tracking(image, online_targets, frame_id=0, fps=0., ids2=None, semantics = False):
     im = np.ascontiguousarray(np.copy(image))
     im_h, im_w = im.shape[:2]
 
@@ -130,11 +130,15 @@ def plot_tracking(image, online_targets, frame_id=0, fps=0., ids2=None):
             id_text = id_text + ', {}'.format(int(ids2[i]))
         color = get_color(abs(obj_id))
         # Plot alerts bottom left if exists
-        if (t.event.alertFlag): 
-            line_thickness *= 2
+        
+        label = ""
+        if (semantics):
+            if (t.event.alertFlag): 
+                line_thickness *= 3
+                label = f'{t.event.category} - {t.event.severity} - {t.track_id}'
+                print(f'Printing label: {label}')
             
-            label = f'{t.event.category} - {t.event.severity} - {t.track_id}'
-            print(f'Printing label: {label}')
+            
             alertCounter += 1
             alertX = alertXInit
             alertY = alertYInit - (alertCounter * 25)
