@@ -32,7 +32,7 @@ from zmq_handler import main_zmq
 def parse_opt():
     parser = argparse.ArgumentParser("ByteTrack argument parser!")
     parser.add_argument("--mode", type=str, choices=["udp", "csv","zmq"], required=True, help="Select communication mode")
-    parser.add_argument("--only_results", type=bool, default=False, help="save tracking results into txt")
+    parser.add_argument("--only_results", type=bool, default=False, help="only save tracking results into txt and nothing else")
     parser.add_argument("--save_results", type=bool, default=True, help="save tracking results into txt")
     parser.add_argument('--save_plot', type=bool, default=False, help="plot tracking")
     parser.add_argument('--view_plot', type=bool, default=False, help="plot view trough x11")

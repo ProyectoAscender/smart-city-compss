@@ -122,5 +122,7 @@ RUN mkdir -p /root/b2drop
 # Avoid warn message when waiting too much for getting path data from b2drop
 ENV PYDEVD_WARN_EVALUATION_TIMEOUT 30
 RUN apt install -y x11-apps
+LABEL org.opencontainers.image.source https://github.com/proyectoAscender/smart-city-compss
+
 # Establishing entrypoint for downloading the stubs and making the image ready at runtime
 # ENTRYPOINT ["./entrypoint.sh"]
