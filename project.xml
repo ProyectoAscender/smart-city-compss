@@ -8,4 +8,9 @@
     <WorkingDir>/tmp/worker0</WorkingDir>
   </ComputeNode>
  
+  <ComputeNode Name="smartcity-compss-worker-1">
+    <InstallDir>/opt/COMPSs/</InstallDir>
+    <WorkingDir>/tmp/worker1</WorkingDir>
+  </ComputeNode>
+ 
 </Project>

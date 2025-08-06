@@ -29,7 +29,7 @@ PMAT_DEST_PATH = "./pmat.txt"
 
 
 # Get host IP
-HOST_IP = socket.gethostbyname(socket.gethostname())
+HOST_IP = utils.get_local_ip()
 
 # Global flag for exiting the program gracefully
 FINISH_PROGRAM = False

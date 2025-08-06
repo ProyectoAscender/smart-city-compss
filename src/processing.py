@@ -32,8 +32,19 @@ def speed_task(t, view_transformer, FPS):
         distance = np.square(np.sum((np.power(abs(t.location - t.prev_location),2))))
         time = 1 / FPS
         speed = (distance / time) * 3.6
-        t.speeds = np.append(t.speeds, speed)
-        online_speeds = f"#{t.track_id} {t.speeds[-1].astype(int)} km/h /n" # 
+        # t.speeds = np.append(t.speeds, speed)
+        
+                # Mantener solo las últimas 5 velocidades (append y recortar)
+        if t.speeds.size >= 5:
+            # Desplazar hacia la izquierda y colocar el nuevo al final
+            t.speeds = np.roll(t.speeds, -1)
+            t.speeds[-1] = speed
+        else:
+            t.speeds = np.append(t.speeds, speed)
+        
+        t.median_speed = np.median(t.speeds)
+        
+        online_speeds = f"#{t.track_id} {t.median_speed.astype(int)} km/h /n" # 
     else:
         t.location = mapPoints
         online_speeds = f"#{t.track_id} --No map points-- km/h /n"

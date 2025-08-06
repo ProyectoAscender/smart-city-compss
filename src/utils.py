@@ -106,3 +106,13 @@ def save_results(results, exp_dir, CAM_ID):
     with open(res_file, 'w') as f:
         f.writelines(results)
     print(f" - Saved results to {res_file}")
+    
+    
+def get_local_ip():
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            # no hace un send real, solo establece conexión para conocer la IP local
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+    except Exception:
+        return "127.0.0.1" 

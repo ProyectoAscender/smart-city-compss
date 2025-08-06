@@ -25,6 +25,7 @@ class BaseTrack(object):
     frame_id = 0
     frames_since_update = 0
     speeds = np.empty(0, dtype=float, order='C')
+    median_speed = 0
 
     event = None # TODO: definir el evento
     cl = None

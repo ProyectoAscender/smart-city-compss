@@ -1,5 +1,5 @@
-ARG ROOT_CONTAINER=registry.gitlab.bsc.es/ppc/software/compss/compss_nvidia:3.3-arm
-FROM $ROOT_CONTAINER as builder
+ARG ROOT_CONTAINER=oriolmac/compss-nvidia-debug:3.3
+FROM $ROOT_CONTAINER AS builder
 
 # FROM ubuntu:18.04
 WORKDIR /root
