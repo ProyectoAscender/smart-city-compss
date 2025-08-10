@@ -20,21 +20,23 @@ import comm_udp as comm_udp
 
 from pycompss.api.api import compss_wait_on
 
-# Kafka and Avro imports
+# Kafka and Avro imports for real-time data streaming
 from kafka import KafkaProducer
 import json
 import io
 import avro.schema
 import avro.io
-# Schema Registry imports
+
+# Schema Registry imports for enterprise Avro schema management
 try:
-    # add this next to your other confluent imports
+    # Confluent Kafka Schema Registry client for centralized schema management
     from confluent_kafka.schema_registry import Schema
     from confluent_kafka.schema_registry import SchemaRegistryClient
     from confluent_kafka.schema_registry.avro import AvroSerializer
     from confluent_kafka.serialization import SerializationContext, MessageField
     SCHEMA_REGISTRY_AVAILABLE = True
 except ImportError:
+    # Graceful fallback if confluent-kafka is not installed
     SCHEMA_REGISTRY_AVAILABLE = False
     print("[Warning] confluent-kafka not available, using basic avro serialization")
 
@@ -46,6 +48,8 @@ ALERTS_OUT_NAME = "alarm.txt"
 PMAT_DEST_PATH = "./pmat.txt"
 
 # Avro schema definition for tracking data
+# This schema defines the structure for real-time object tracking messages
+# Compatible with Confluent Schema Registry and basic Avro serialization
 TRACKING_AVRO_SCHEMA = """
 {
   "namespace": "alert.avro",
@@ -97,21 +101,50 @@ TRACKING_AVRO_SCHEMA = """
 # AVRO_SCHEMA_SUBJECT=smartcity-tracking-value
 
 ###########################################
+# KAFKA CONFIGURATION MANAGEMENT
+# 
+# Environment variable configuration for Kafka and Schema Registry
+# Supports both basic Kafka and enterprise Schema Registry deployments
+# Compatible with Helm charts and Kubernetes deployments
+###########################################
+
 def get_kafka_config_from_env():
+    """
+    Load Kafka and Schema Registry configuration from environment variables.
+    
+    This function provides a centralized way to configure Kafka connectivity
+    for different deployment environments (development, staging, production).
+    
+    Environment Variables:
+    - KAFKA_BOOTSTRAP_SERVERS: Kafka cluster endpoints
+    - KAFKA_TOPIC: Topic name for tracking data
+    - KAFKA_USERNAME/PASSWORD: SASL authentication credentials
+    - KAFKA_SECURITY_PROTOCOL: Security protocol (PLAINTEXT, SASL_PLAINTEXT, SSL, SASL_SSL)
+    - KAFKA_FLUSH_INTERVAL: Number of frames between producer flushes
+    - USE_SCHEMA_REGISTRY: Enable Schema Registry integration
+    - SCHEMA_REGISTRY_URL: Schema Registry endpoint
+    
+    Returns:
+        dict: Complete Kafka configuration dictionary
+    """
     import os
     config = {
+        # Basic Kafka connection settings
         'kafka_bootstrap_servers': os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'localhost:9092'),
         'kafka_topic': os.getenv('KAFKA_TOPIC', 'smartcity-tracking'),
 
+        # Authentication settings (for KafkaUser in Kubernetes)
         'kafka_username': os.getenv('KAFKA_USERNAME'),
         'kafka_password': os.getenv('KAFKA_PASSWORD'),
         'kafka_security_protocol': os.getenv('KAFKA_SECURITY_PROTOCOL', 'PLAINTEXT'),
-        'kafka_sasl_mechanism': os.getenv('KAFKA_SASL_MECHANISM', 'SCRAM-SHA-512'),  # ← default to SCRAM
+        'kafka_sasl_mechanism': os.getenv('KAFKA_SASL_MECHANISM', 'SCRAM-SHA-512'),  # Default to SCRAM
 
+        # SSL/TLS certificate settings
         'kafka_ssl_cafile': os.getenv('KAFKA_SSL_CAFILE'),
         'kafka_ssl_certfile': os.getenv('KAFKA_SSL_CERTFILE'),
         'kafka_ssl_keyfile': os.getenv('KAFKA_SSL_KEYFILE'),
 
+        # Schema Registry configuration
         'schema_registry_url': os.getenv('SCHEMA_REGISTRY_URL'),
         'schema_registry_username': os.getenv('SCHEMA_REGISTRY_USERNAME'),
         'schema_registry_password': os.getenv('SCHEMA_REGISTRY_PASSWORD'),
@@ -119,14 +152,16 @@ def get_kafka_config_from_env():
         'schema_registry_ssl_cert_location': os.getenv('SCHEMA_REGISTRY_SSL_CERT_LOCATION'),
         'schema_registry_ssl_key_location': os.getenv('SCHEMA_REGISTRY_SSL_KEY_LOCATION'),
 
+        # Avro schema settings
         'avro_schema_subject': os.getenv('AVRO_SCHEMA_SUBJECT', 'smartcity-tracking-value'),
         'use_schema_registry': os.getenv('USE_SCHEMA_REGISTRY', 'false').lower() == 'true',
         
-        # Frame-based flush configuration
+        # Frame-based flush configuration for performance tuning
         'kafka_flush_interval': int(os.getenv('KAFKA_FLUSH_INTERVAL', '100')),  # Default: flush every 100 frames
         'kafka_auto_flush': os.getenv('KAFKA_AUTO_FLUSH', 'true').lower() == 'true',
     }
 
+    # Auto-detection of security protocols based on credentials
     # If user+pass but still PLAINTEXT, switch to SASL_PLAINTEXT
     if config['kafka_username'] and config['kafka_password'] and config['kafka_security_protocol'] == 'PLAINTEXT':
         config['kafka_security_protocol'] = 'SASL_PLAINTEXT'
@@ -144,19 +179,40 @@ def get_kafka_config_from_env():
     return config
 
 
-# At top (inside the try that imports confluent):
-# from confluent_kafka.schema_registry import Schema, SchemaRegistryClient
+# Schema Registry client management functions
+# These functions handle Schema Registry connectivity and schema registration
 
 def create_schema_registry_client(schema_registry_url, username=None, password=None,
                                   ssl_ca_location=None, ssl_cert_location=None, ssl_key_location=None):
+    """
+    Create a Schema Registry client for centralized Avro schema management.
+    
+    This enables enterprise-grade schema evolution and compatibility checking.
+    Falls back gracefully if Schema Registry is not available.
+    
+    Args:
+        schema_registry_url (str): Schema Registry endpoint URL
+        username (str, optional): Basic auth username
+        password (str, optional): Basic auth password
+        ssl_ca_location (str, optional): Path to CA certificate file
+        ssl_cert_location (str, optional): Path to client certificate file
+        ssl_key_location (str, optional): Path to client private key file
+    
+    Returns:
+        SchemaRegistryClient or None: Configured client or None if unavailable
+    """
     if not SCHEMA_REGISTRY_AVAILABLE or not schema_registry_url:
         print("[Schema Registry] Not available or URL missing; using basic Avro serialization")
         return None
 
     conf = {'url': schema_registry_url}
+    
+    # Configure authentication if provided
     if username and password:
         conf['basic.auth.user.info'] = f"{username}:{password}"
         print(f"[Schema Registry] Using basic auth for user: {username}")
+    
+    # Configure SSL if certificates are provided
     if ssl_ca_location:
         conf['ssl.ca.location'] = ssl_ca_location
     if ssl_cert_location:
@@ -167,15 +223,30 @@ def create_schema_registry_client(schema_registry_url, username=None, password=N
     return SchemaRegistryClient(conf)
 
 def get_or_register_schema(schema_registry_client, subject, schema_str):
+    """
+    Retrieve existing schema or register a new one in Schema Registry.
+    
+    This function handles schema versioning and ensures compatibility
+    across different application instances.
+    
+    Args:
+        schema_registry_client: Schema Registry client instance
+        subject (str): Schema subject name (e.g., 'smartcity-tracking-value')
+        schema_str (str): Avro schema definition as JSON string
+    
+    Returns:
+        tuple: (schema_id, schema_str) or (None, None) if client unavailable
+    """
     if not schema_registry_client:
         return None, None  # (schema_id, schema_str)
 
     try:
+        # Try to get existing schema version
         v = schema_registry_client.get_latest_version(subject)
         print(f"[Schema Registry] Using existing subject={subject} version={v.version}")
         return v.schema_id, v.schema.schema_str
     except Exception:
-        # Not found → register
+        # Schema not found → register new one
         confluent_schema = Schema(schema_str, 'AVRO')
         schema_id = schema_registry_client.register_schema(subject, confluent_schema)
         print(f"[Schema Registry] Registered subject={subject} id={schema_id}")
@@ -187,24 +258,53 @@ def create_kafka_producer(kafka_bootstrap_servers="localhost:9092", kafka_userna
                           kafka_security_protocol="PLAINTEXT", kafka_sasl_mechanism="SCRAM-SHA-512", 
                           kafka_ssl_cafile=None, kafka_ssl_certfile=None, kafka_ssl_keyfile=None,
                           schema_registry_client=None, avro_schema_subject=None, topic_name=None):
+    """
+    Create and configure a Kafka producer with Avro serialization support.
+    
+    This function creates a high-performance Kafka producer with support for:
+    - Schema Registry integration (enterprise)
+    - Basic Avro serialization (fallback)
+    - Multiple authentication methods (SASL, SSL)
+    - Performance optimization settings
+    
+    Args:
+        kafka_bootstrap_servers (str): Comma-separated list of Kafka brokers
+        kafka_username (str, optional): SASL username for authentication
+        kafka_password (str, optional): SASL password for authentication
+        kafka_security_protocol (str): Security protocol (PLAINTEXT, SASL_PLAINTEXT, SSL, SASL_SSL)
+        kafka_sasl_mechanism (str): SASL mechanism (SCRAM-SHA-512, PLAIN, etc.)
+        kafka_ssl_cafile (str, optional): Path to CA certificate file
+        kafka_ssl_certfile (str, optional): Path to client certificate file  
+        kafka_ssl_keyfile (str, optional): Path to client private key file
+        schema_registry_client: Schema Registry client for enterprise deployments
+        avro_schema_subject (str, optional): Schema subject name in Schema Registry
+        topic_name (str, optional): Kafka topic name for context
+    
+    Returns:
+        KafkaProducer or None: Configured producer instance or None on failure
+    """
     use_schema_registry = schema_registry_client is not None
 
+    # Base producer configuration optimized for real-time streaming
     producer_config = {
         'bootstrap_servers': kafka_bootstrap_servers,
         'key_serializer': (lambda x: x.encode('utf-8') if x else None),
-        'acks': 'all',
-        'retries': 3,
-        'batch_size': 16384,
-        'linger_ms': 10,
-        'buffer_memory': 33554432,
+        'acks': 'all',              # Wait for all replicas to acknowledge
+        'retries': 3,               # Retry failed sends
+        'batch_size': 16384,        # Batch size for better throughput
+        'linger_ms': 10,            # Wait time for batching
+        'buffer_memory': 33554432,  # Producer buffer memory
     }
 
+    # Configure serialization strategy (Schema Registry vs Basic Avro)
     if use_schema_registry and SCHEMA_REGISTRY_AVAILABLE:
-        schema_id, schema_str = get_or_register_schema(schema_registry_client, avro_schema_subject, TRACKING_AVRO_SCHEMA)
+        # Enterprise mode: Use Schema Registry for centralized schema management
+        _, schema_str = get_or_register_schema(schema_registry_client, avro_schema_subject, TRACKING_AVRO_SCHEMA)
         if schema_str:
             avro_serializer = AvroSerializer(schema_registry_client, schema_str)
 
             def schema_registry_serializer(data):
+                """Serialize data using Schema Registry with fallback to basic Avro."""
                 ctx = SerializationContext(topic_name, MessageField.VALUE)
                 try:
                     return avro_serializer(data, ctx)  # returns bytes
@@ -215,20 +315,26 @@ def create_kafka_producer(kafka_bootstrap_servers="localhost:9092", kafka_userna
             producer_config['value_serializer'] = schema_registry_serializer
             print("[Kafka] Using Confluent Avro wire format via Schema Registry")
         else:
+            # Schema Registry failed, fallback to basic Avro
             producer_config['value_serializer'] = lambda x: avro_serialize(x)
             print("[Kafka] SR lookup failed; using basic Avro")
     else:
+        # Basic mode: Use standard Avro serialization
         producer_config['value_serializer'] = lambda x: avro_serialize(x)
         print("[Kafka] Using basic Avro serialization")
 
-    # Security
+    # Configure security settings based on protocol
     if kafka_security_protocol != "PLAINTEXT":
         producer_config['security_protocol'] = kafka_security_protocol
+        
+        # Configure SASL authentication if credentials provided
         if kafka_username and kafka_password:
             producer_config['sasl_mechanism'] = kafka_sasl_mechanism
             producer_config['sasl_plain_username'] = kafka_username
             producer_config['sasl_plain_password'] = kafka_password
             print(f"[Kafka] Configuring SASL auth for user: {kafka_username}")
+        
+        # Configure SSL certificates if provided
         if kafka_ssl_cafile:
             producer_config['ssl_cafile'] = kafka_ssl_cafile
         if kafka_ssl_certfile:
@@ -247,9 +353,24 @@ def create_kafka_producer(kafka_bootstrap_servers="localhost:9092", kafka_userna
 
 
 def send_tracking_data_to_kafka(producer, topic, data, cam_id):
-    """Send tracking data to Kafka topic."""
+    """
+    Send tracking data to Kafka topic with proper partitioning.
+    
+    Uses camera ID and track ID as message key to ensure related messages
+    are sent to the same partition for ordered processing.
+    
+    Args:
+        producer: Kafka producer instance
+        topic (str): Kafka topic name
+        data (dict): Avro-serialized tracking data
+        cam_id (str): Camera identifier for partitioning
+    
+    Returns:
+        bool: True if successful, False otherwise
+    """
     try:
-        # Use cam_id as the message key for partitioning
+        # Use cam_id + track_id as the message key for consistent partitioning
+        # This ensures all messages from the same track go to the same partition
         key = f"{cam_id}_{data['track_id']}"
         producer.send(topic, key=key, value=data)
         return True
@@ -258,13 +379,25 @@ def send_tracking_data_to_kafka(producer, topic, data, cam_id):
         return False
 
 def convert_polygon_type_to_int(polygon_type):
-    """Convert polygon_type to integer for Avro schema compatibility."""
+    """
+    Convert polygon_type to integer for Avro schema compatibility.
+    
+    Maps string polygon types to integer values as required by the Avro schema.
+    Provides standardized encoding for semantic area classification.
+    
+    Args:
+        polygon_type: String polygon type or existing integer
+    
+    Returns:
+        int: Mapped polygon type integer (0 for unknown/None)
+    """
     if polygon_type is None:
         return 0
     if isinstance(polygon_type, int):
         return polygon_type
     if isinstance(polygon_type, str):
         # Define mapping from string polygon types to integers
+        # These values correspond to semantic area classifications
         polygon_mapping = {
             "crosswalk": 1,
             "street": 2,
@@ -278,9 +411,23 @@ def convert_polygon_type_to_int(polygon_type):
     return 0
 
 
+# Pre-parsed Avro schema for performance optimization
+# Parsing the schema once at module level avoids repeated parsing costs
 _PARSED_TRACKING_SCHEMA = avro.schema.parse(TRACKING_AVRO_SCHEMA)
 
 def avro_serialize(data):
+    """
+    Serialize data using basic Avro format (no Schema Registry).
+    
+    This function provides fallback serialization when Schema Registry
+    is not available or configured. Uses the pre-parsed schema for efficiency.
+    
+    Args:
+        data (dict): Data dictionary matching the Avro schema
+    
+    Returns:
+        bytes or None: Serialized Avro bytes or None on error
+    """
     try:
         writer = avro.io.DatumWriter(_PARSED_TRACKING_SCHEMA)
         bytes_writer = io.BytesIO()
@@ -412,7 +559,10 @@ def run_udp(
 
     # if FINISH_PROGRAM:
     #     break
-    
+    # after kafka_producer is created
+    last_flush_time = time.time() if (use_kafka and kafka_producer) else 0.0
+    FLUSH_EVERY_SECS = 5.0  # tune as needed
+
     print(f"Handling edge_ip: {edge_ip}")
     
     # parse "host:port"
@@ -549,8 +699,8 @@ def run_udp(
                 break   
             try: 
                 # Receiving boxes
-                hex_data, address = udpSock.recvfrom(16000)  # bigger buffer if needed
-            except BlockingIOError as b:
+                hex_data, _ = udpSock.recvfrom(16000)  # bigger buffer if needed
+            except BlockingIOError:
                 if(hex_data==""):   # hex_data is set to "" at the end of the processing loop
                     # print(f"[main.py - {CAM_ID}] No bounding box data, continuing...")
                     continue
@@ -634,9 +784,6 @@ def run_udp(
             #print('Actualizando tracker sin nuevas detecciones ')
         
         # Collect and write results if online targets is not empty
-        online_tlwhs = []
-        online_ids = []
-        online_scores = []
         if (get_speed): online_speeds = []
         
         # Build data records AFTER processing so UTM/speed/polygon are available
@@ -649,18 +796,20 @@ def run_udp(
         
         # After data processing, if "only_results" we dont need to process anything else of this frame
         if (only_results): 
-            # Frame-based Kafka flush or CSV save logic
+            # FRAME-BASED FLUSH MANAGEMENT
+            # Implement intelligent flushing strategy for optimal performance vs latency
             if use_kafka and kafka_producer:
-                # Frame-based flush: flush every kafka_flush_interval frames
+                # Primary flush strategy: Frame-based intervals for predictable latency
                 if kafka_flush_interval > 0 and frame_idx % kafka_flush_interval == 0:
                     kafka_producer.flush()
                     print(f"{CAM_ID} - Kafka producer flushed at frame {frame_idx} (every {kafka_flush_interval} frames)")
                 
-                # Hourly flush as backup (every 300 frames)
-                elif frame_idx % 300 == 0 and new_hour != current_hour:
-                    kafka_producer.flush()
-                    print(f"{CAM_ID} - Kafka producer flushed due to hour change at frame {frame_idx}")
-                    current_hour = new_hour
+                # Secondary flush strategy: Hourly backup flush (every 300 frames)
+                elif frame_idx % 300 == 0:
+                    if new_hour != current_hour:
+                        kafka_producer.flush()
+                        print(f"{CAM_ID} - Kafka producer flushed due to hour change at frame {frame_idx}")
+                        current_hour = new_hour
             else:
                 # CSV fallback: save every 300 frames or hour change
                 if frame_idx % 300 == 0 and new_hour != current_hour:
@@ -701,30 +850,42 @@ def run_udp(
                 print(f"{CAM_ID} - Error receiving compss data: {e}")
                 sys.exit(1)
         timers['processing'].toc()
-        # AFTER timers['processing'].toc(), build and send
+        # BUILD AND SEND TRACKING DATA TO KAFKA
+        # Process each detected object and send to Kafka or store for CSV
         for i, t in enumerate(online_targets):
+            # Skip small objects if minimum area threshold is set
             if min_box_area is not None and (t.tlwh[2] * t.tlwh[3] <= min_box_area):
                 continue
 
+            # Extract tracking attributes with safe fallbacks
             utm_x = getattr(t, "utm_x", None)
             utm_y = getattr(t, "utm_y", None)
             polygon_type = getattr(t, "polygon_type", None)
             speed_kmh = getattr(t, "speed_kmh", None)
+            
+            # Use computed speed if not available on track object
             if speed_kmh is None and (get_speed and i < len(online_speeds)):
                 speed_kmh = online_speeds[i]
 
             if use_kafka and kafka_producer:
+                # KAFKA MODE: Send real-time Avro messages
+                # Build Avro record matching the schema structure
                 avro_record = {
                     "cam_id": CAM_ID,
                     "frame_id": frameId,
-                    "ts": ts_ms,
+                    "ts": ts_ms,  # Timestamp in epoch milliseconds
                     "track_id": t.track_id,
+                    
+                    # Bounding box coordinates (top-left width-height format)
                     "coord_box1": float(t.tlwh[0]),
                     "coord_box2": float(t.tlwh[1]),
                     "coord_box3": float(t.tlwh[2]),
                     "coord_box4": float(t.tlwh[3]),
+                    
                     "box_score": float(getattr(t, "score", 0.0)),
                     "class_box": int(getattr(t, "cl", 0)),
+                    
+                    # Nested UTM information structure
                     "utm": {
                         "utm_x_m": float(utm_x) if utm_x is not None else 0.0,
                         "utm_y_m": float(utm_y) if utm_y is not None else 0.0,
@@ -732,11 +893,14 @@ def run_udp(
                         "polygon_type": convert_polygon_type_to_int(polygon_type),
                     },
                 }
+                
+                # Send to Kafka with error handling
                 success = send_tracking_data_to_kafka(kafka_producer, kafka_topic, avro_record, CAM_ID)
                 if not success:
                     print(f"{CAM_ID} - Failed to send data to Kafka for track_id: {t.track_id}")
             else:
-                # Fallback to CSV format if Kafka is not enabled
+                # CSV FALLBACK MODE: Store data for batch file writing
+                # Format data as CSV string for later batch writing
                 results.append(
                     f"{CAM_ID},{frameId},{ts_ms},{t.track_id},"
                     f"{t.tlwh[0]:.2f},{t.tlwh[1]:.2f},{t.tlwh[2]:.2f},{t.tlwh[3]:.2f},"
@@ -747,11 +911,27 @@ def run_udp(
                     f"{'' if polygon_type is None else polygon_type}\n"
                 )
 
-        # Frame-based flush for immediate delivery when auto_flush is enabled
-        if use_kafka and kafka_producer and kafka_auto_flush:
-            if kafka_flush_interval > 0 and frame_idx % kafka_flush_interval == 0:
-                kafka_producer.flush()
-                print(f"{CAM_ID} - Auto-flushed Kafka producer at frame {frame_idx}")
+        # AUTOMATIC FLUSH FOR LOW-LATENCY DELIVERY
+        # Optional immediate flush after sending data for ultra-low latency scenarios
+        # Periodic flush (frame- or time-based, or hour change)
+        if use_kafka and kafka_producer:
+            do_flush = False
+            if kafka_auto_flush and kafka_flush_interval > 0 and (frame_idx % kafka_flush_interval == 0):
+                do_flush = True
+            if (time.time() - last_flush_time) > FLUSH_EVERY_SECS:
+                do_flush = True
+            if new_hour != current_hour:  # hour rolled over
+                do_flush = True
+                current_hour = new_hour
+
+            if do_flush:
+                try:
+                    kafka_producer.flush(timeout=5.0)
+                    last_flush_time = time.time()
+                    
+                    # print(f"{CAM_ID} - Kafka producer flushed at frame {frame_idx}")
+                except Exception as e:
+                    print(f"{CAM_ID} - Kafka flush error: {e}")
 
         # # Add track info to results 
         # for i, t in enumerate(online_targets):
@@ -815,20 +995,21 @@ def run_udp(
         # if frameId >= NUM_ITERS and NEVEREND == False: 
         #     break
 
-    # WHILE ENDED
-
+    # CLEANUP AND FINAL DATA HANDLING
     print(f'{CAM_ID} - Camera edge while loop has ended')
     print(f"{CAM_ID} - \n\n\t SmartCity skipped a total of {frameId - frame_idx} frames.")
 
-    # Final data handling
+    # Final data handling based on output mode
     if use_kafka and kafka_producer:
-        # Flush and close Kafka producer
-        kafka_producer.flush()
-        kafka_producer.close()
+        # KAFKA MODE: Flush remaining messages and close producer
+        kafka_producer.flush()  # Ensure all pending messages are sent
+        kafka_producer.close()  # Clean shutdown of producer
         print(f"{CAM_ID} - Kafka producer flushed and closed")
     elif save_results and results != []:
+        # CSV MODE: Save accumulated results to file
         utils.save_results(results, exp_dir, CAM_ID)
         
+    # Save alert information if alerts are enabled
     if alerts:
         alarm_file = join(exp_dir, ALERTS_OUT_NAME)
         print(f"{CAM_ID} - Savedir: {alarm_file}")
@@ -836,6 +1017,7 @@ def run_udp(
             f.writelines(alertInfo)
         print(f"{CAM_ID} - save alarms to {alarm_file}")
 
+    # Clean up video resources
     if save_plot: 
         print(f"{CAM_ID} - Releasing video save...")
         cap.release()
@@ -848,10 +1030,12 @@ def run_udp(
         vid_sender.release()
         cv2.destroyAllWindows()
     
+    # Close network connections
     print(f"{CAM_ID} - About to close udp")
     udpSock.close()
     print(f"{CAM_ID} - Done receiving from {edge_ip}.\n")
 
+    # Close MQTT connection if alerts were enabled
     if(alerts):
         print(f"{CAM_ID} - About to close mqtt")
         # MQTT client disconnect
