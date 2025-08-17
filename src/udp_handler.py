@@ -46,7 +46,7 @@ def run_udp(
         track_thresh = None,
         track_buffer = None,
         match_thresh = None,
-        min_box_area = None,
+        min_box_area = 0,
         #yolo_weights=WEIGHTS / 'yolov5m.pt',  # model.pt path(s),
         reid_weights= None,  # model.pt path,
         tracking_method='bytetrack',
@@ -57,7 +57,7 @@ def run_udp(
         save_results = True,
         save_plot = False,
         view_plot = False,
-        semantics = True, 
+        get_semantic = True, 
         get_speed = True,
         alerts = False,
         print_time = True
@@ -124,7 +124,7 @@ def run_udp(
     CITY = DATA_PATH.split(os.path.sep)[0]
     AREA = DATA_PATH.split(os.path.sep)[1]
     DATA_PATH = os.path.join( 'data', DATA_PATH)
-    ROI_PATH = DATA_PATH + '/roi/' + AREA.lower() + '.json'
+    ROI_PATH = DATA_PATH + '/roi/' + AREA.lower() + '_' + CAM_ID + '.json'
     PMAT_PATH = utils.find_files_by_strings(os.path.join(DATA_PATH, 'pmat'), CAM_ID, "ACTIVE")[0]
     if (not os.path.exists(PMAT_DEST_PATH)) or (os.stat(PMAT_PATH).st_mtime - os.stat(PMAT_DEST_PATH).st_mtime > 1) :
         # Load pmat. First we add a local copy to avoid b2drop delay
@@ -139,7 +139,7 @@ def run_udp(
     # Optinal saving or visualizing video. Both ways requires get processed frames from camera-edge.
     if view_plot or save_plot:
         
-        # Gstreamer input from camera edge. ONLY sent frames.
+        # Gstreamer input from camera edge. ONLY processed frames are sent and received trough here.
         gst_str = (
             "udpsrc port=5001 multicast-group=239.255.12.41 auto-multicast=true ! "
             "application/x-rtp,media=video,clock-rate=90000,encoding-name=H264 ! "
@@ -157,15 +157,27 @@ def run_udp(
         vid_fps = cap.get(cv2.CAP_PROP_FPS)
         FPS = vid_fps if int(vid_fps) > 0 else DEFAULT_FPS
 
+    current_hour = int(datetime.now().strftime("%M"))
     # Prepare video save output
     if save_plot:
-        out_path = join(exp_dir, CAM_ID, VIDEO_OUT_NAME)
-        print(out_path)
-        video_format = 'MP4V'
-        fourcc = cv2.VideoWriter_fourcc(*video_format)
-        vid_writer = cv2.VideoWriter(out_path, fourcc, FPS, (CAM_WIDTH, CAM_HEIGHT))
-        print(f'{CAM_ID} - Saving video. Path: {out_path} | fps: {FPS} | resolution: {CAM_WIDTH}x{CAM_HEIGHT}')
-    
+        folder_path = os.path.join(
+            exp_dir,
+            datetime.now().strftime("%Y%m%d"),
+            CAM_ID,
+            str(current_hour)
+        )
+         
+        os.makedirs(folder_path, exist_ok=True)
+        video_path = os.path.join(folder_path, VIDEO_OUT_NAME)
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        
+        if current_hour % 2 == 0:
+            vid_writer = cv2.VideoWriter(video_path, fourcc, FPS, (CAM_WIDTH, CAM_HEIGHT))
+        else:
+            vid_writer2 = cv2.VideoWriter(video_path, fourcc, FPS, (CAM_WIDTH, CAM_HEIGHT))
+        print(f'{CAM_ID} - Prepared saving video. Path: {video_path} | fps: {FPS} | resolution: {CAM_WIDTH}x{CAM_HEIGHT}')
+
+
     # View_plot if has display and x11 will be show. But if no display will be re-sent.
     # Re-send inicialization:
     if view_plot and os.environ.get("DISPLAY") is None:
@@ -185,7 +197,7 @@ def run_udp(
         print(f'{CAM_ID} Video saving prepared to {HOST_IP} ')
             
     # If semantics enabled, load polygons:
-    if(semantics):
+    if(get_semantic):
         print(f'{CAM_ID} - Loading Polygons')
         polys = utils.getPolysRoi(ROI_PATH)
     else:
@@ -203,8 +215,8 @@ def run_udp(
     
     # Prepare storage for bounding-box results
     results = []
+    all_results = []
     if (alerts): alertInfo = []
-    current_hour = datetime.now().strftime("%H")
     
     print('Iterating frames')
     ######################### LOOP ITERATING FRAMES ########################
@@ -214,9 +226,9 @@ def run_udp(
     while frameId <= NUM_ITERS or NEVEREND == True:
         hex_data = ""
         timers['total'].tic()                 
-        new_hour = datetime.now().strftime("%H")    
+        new_hour = int(datetime.now().strftime("%M"))  
         frame_idx += 1
-
+        
         # Loop to get the last message
         udpSock.setblocking(False)
         timers['wait_recv'].tic()
@@ -245,6 +257,8 @@ def run_udp(
             if not ret:
                 print(f"{CAM_ID} - No hay captura. Salto siguiente iter.")
                 break
+            else:
+                print('--- > frame received')
             # cv2.imwrite(f"./{frame_idx}_received.jpg", frame)
             
         
@@ -272,8 +286,9 @@ def run_udp(
             
         timers['reception'].toc()
 
-        timers['track'].tic()
         ## TRACKING
+        
+        timers['track'].tic()
         # Frames con detecciones
         if det != []:
             # Update tracker
@@ -293,31 +308,32 @@ def run_udp(
         online_scores = []
         if (get_speed): online_speeds = []
         
+        # Discard non-consolidated data
+        online_targets = [t for t in online_targets if t.tlwh[2] * t.tlwh[3] > min_box_area]
+        
         # Add track info to results 
+        frame_results = []
         for i, t in enumerate(online_targets):
             # tlwh = t.tlwh
             # tid = t.track_id
-            if t.tlwh[2] * t.tlwh[3] > min_box_area: 
-                online_tlwhs.append(t.tlwh)
-                online_ids.append(t.track_id)
-                online_scores.append(t.score)
-                # online_flags(t.event.alertFlag)
-                results.append(
-                    f"{CAM_ID},{frameId},{ts},{t.track_id},{t.tlwh[0]:.2f},{t.tlwh[1]:.2f},{t.tlwh[2]:.2f},{t.tlwh[3]:.2f},{t.score:.2f},{t.cl}\n"
-                )
-            else:
-                print("Tracklet discarded because box size")
+            online_tlwhs.append(t.tlwh)
+            online_ids.append(t.track_id)
+            online_scores.append(t.score)
+            
+            line = (f"\n{CAM_ID},{frameId},{ts},{t.track_id},"
+                    f"{t.tlwh[0]:.2f},{t.tlwh[1]:.2f},{t.tlwh[2]:.2f},{t.tlwh[3]:.2f},"
+                    f"{t.score:.2f},{t.cl}")
+            frame_results.append(line)
+            results.append(line)  # results global, si lo quieres
+            # online_flags(t.event.alertFlag)
 
         timers['track'].toc()
-        
 
-        
-        
-        
+
         # After results append, if "only_results" we dont need to process anything else of this frame
         if (only_results): 
             # We've checked every 300 frames if hour has changed.
-            if (frame_idx % 300 and new_hour != current_hour):
+            if (frame_idx % 300 == 0 and new_hour != current_hour):
                 utils.save_results(results, exp_dir, CAM_ID)
                 current_hour = new_hour
                 results = []
@@ -326,12 +342,13 @@ def run_udp(
                 print(f"{CAM_ID} - Acabando {frame_idx} - {frameId}")
                 continue
         
+        
+        
         timers['processing'].tic()
         futures = []
         for t in online_targets:
-            tModified , alertInfo_thread, online_speeds_thread,  t_speed_thread, t_semantics_thread = processing.process_tracklets(t, view_transformer, timers, semantics, 
-                                                            get_speed , alerts , (FPS if "FPS" in vars() else DEFAULT_FPS),
-                                                            polys, ts, frameId) 
+            tModified , alertInfo_thread, online_speeds_thread,  t_speed_thread, t_semantics_thread = processing.process_tracklets(t, view_transformer, timers, get_semantic, 
+                                                            get_speed , alerts , polys, ts, frameId) 
             futures.append((tModified , alertInfo_thread, online_speeds_thread,  t_speed_thread, t_semantics_thread))
             
         for i, future in enumerate(futures):
@@ -348,7 +365,10 @@ def run_udp(
                     alertInfo.append(alertInfo_task)
                 if(get_speed):
                     online_speeds.append(online_speeds_task)
-                
+                all_results.append(
+                        f"{frame_results[i]},{online_targets[i].location[0]},{online_targets[i].location[1]},"
+                        f"{online_targets[i].median_speed:.2f},{online_targets[i].event.polyType}"
+                    )
                 timers['speed'].toc(value=t_speed_task)
                 timers['semantics'].toc(value=t_semantics_task) 
 
@@ -361,12 +381,17 @@ def run_udp(
 
         # Plotting video
         if save_plot or view_plot:
-            online_im = plot_tracking(frame, online_targets, frame_id = frameId, fps = FPS, semantics = semantics)
+            online_im = plot_tracking(frame, online_targets, frame_id = frameId, fps = FPS, get_semantic = get_semantic)
             # online_im = plot_tracking(
             #     frame, online_tlwhs, online_ids, online_flags,frame_id=frameId, fps= FPS,
             # )
         # Save video
-        if save_plot: vid_writer.write(online_im)
+        if save_plot:  
+            if current_hour % 2 == 0:
+                vid_writer.write(online_im)
+            else:
+                vid_writer2.write(online_im)
+
         
         # View frame with plot
         if view_plot and os.environ.get("DISPLAY") is not None:
@@ -398,6 +423,28 @@ def run_udp(
                 print(f'{CAM_ID} - Avg. {name.capitalize()} Time: {timer.average_time}')
                 timer.clear()
         
+        # We check again and save results with speed
+        if (frame_idx % 300 == 0 and new_hour != current_hour):
+            folder_path = utils.save_results(all_results, exp_dir, CAM_ID)
+            all_results , results = [] , []
+            print(f"{CAM_ID} - Saving every 300 frames")
+            
+            video_path = os.path.join(folder_path, VIDEO_OUT_NAME)
+            if save_plot:
+                if current_hour % 2 == 0:
+                    vid_writer.release()
+                    vid_writer2 = cv2.VideoWriter(video_path, fourcc, FPS, (CAM_WIDTH, CAM_HEIGHT))
+                    print(f"{CAM_ID} - New video file started: {video_path}, vid_writer2")
+                else:
+                    vid_writer2.release()
+                    vid_writer = cv2.VideoWriter(video_path, fourcc, FPS, (CAM_WIDTH, CAM_HEIGHT))
+                    print(f"{CAM_ID} - New video file started: {video_path}, vid_writer")
+            current_hour = new_hour
+
+        else: 
+            print(f"{CAM_ID} - Acabando {frame_idx} - {frameId}")
+            continue
+        
         print(f"{CAM_ID} - Finishing iter {frame_idx} ")
         
         # We end loop if not new frames are going to arrive
@@ -409,8 +456,8 @@ def run_udp(
     print(f'{CAM_ID} - Camera edge while loop has ended')
     print(f"{CAM_ID} - \n\n\t SmartCity skipped a total of {frameId - frame_idx} frames.")
 
-    if save_results and results != []:
-        utils.save_results(results, exp_dir, CAM_ID)
+    if save_results and all_results != []:
+        utils.save_results(all_results, exp_dir, CAM_ID)
         
     if alerts:
         alarm_file = join(exp_dir, ALERTS_OUT_NAME)
@@ -451,7 +498,7 @@ def main_udp(opt):
     #     # shutil.rmtree(exp_vid_dir)
     # opt.exp_dir = exp_vid_dir
     
-    if(opt.only_results and not opt.save_results) or (opt.only_results and (opt.save_plot or opt.view_plot or opt.get_speed or opt.semantics or opt.alerts)):
+    if(opt.only_results and not opt.save_results) or (opt.only_results and (opt.save_plot or opt.view_plot or opt.get_speed or opt.get_semantic or opt.alerts)):
          print("Has introducido argumentos incompatibles con only_results.")
          sys.exit()
     
@@ -481,7 +528,7 @@ def main_udp(opt):
             save_plot=opt.save_plot,
             view_plot=opt.view_plot,
             get_speed=opt.get_speed,
-            semantics=opt.semantics,
+            get_semantic=opt.get_semantic,
             alerts=opt.alerts
             )
             for edge_ip in opt.edge_ips
