@@ -25,6 +25,7 @@ class BaseTrack(object):
     frame_id = 0
     frames_since_update = 0
     speeds = np.empty(0, dtype=float, order='C')
+    distances = np.empty(0, dtype=float, order='C')
     median_speed = 0
 
     event = None # TODO: definir el evento
@@ -33,6 +34,7 @@ class BaseTrack(object):
     # multi-camera
     location = None
     prev_location = None
+    prev_ts = None
 
     @property
     def end_frame(self):

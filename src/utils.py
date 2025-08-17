@@ -106,6 +106,7 @@ def save_results(results, exp_dir, CAM_ID):
     with open(res_file, 'w') as f:
         f.writelines(results)
     print(f" - Saved results to {res_file}")
+    return folder_path
     
     
 def get_local_ip():

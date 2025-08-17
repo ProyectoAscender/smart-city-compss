@@ -27,24 +27,31 @@ WEIGHTS = relROOT / '/weights'
 from udp_handler import main_udp
 from zmq_handler import main_zmq
 
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
+
 
 
 def parse_opt():
     parser = argparse.ArgumentParser("ByteTrack argument parser!")
     parser.add_argument("--mode", type=str, choices=["udp", "csv","zmq"], required=True, help="Select communication mode")
-    parser.add_argument("--only_results", type=bool, default=False, help="only save tracking results into txt and nothing else")
-    parser.add_argument("--save_results", type=bool, default=True, help="save tracking results into txt")
-    parser.add_argument('--save_plot', type=bool, default=False, help="plot tracking")
-    parser.add_argument('--view_plot', type=bool, default=False, help="plot view trough x11")
-    parser.add_argument('--alerts', type=bool, default=False, help="Generate alerts with MQTT")
-    parser.add_argument('--semantics', type=bool, default=False, help="Analytics with semantics")
-    parser.add_argument("--print_time", type=bool, default=True, help="Print time statistics in terminal")
-    parser.add_argument('--get_speed', type=bool, default=False, help="Measure speed")
+    parser.add_argument("--only_results", type=str2bool, default=False, help="only save tracking results into txt and nothing else")
+    parser.add_argument("--save_results", type=str2bool, default=True, help="save tracking results into txt")
+    parser.add_argument('--save_plot', type=str2bool, default=False, help="plot tracking")
+    parser.add_argument('--view_plot', type=str2bool, default=False, help="plot view trough x11")
+    parser.add_argument('--alerts', type=str2bool, default=False, help="Generate alerts with MQTT")
+    parser.add_argument('--get_semantic', type=str2bool, default=False, help="Analytics with semantics")
+    parser.add_argument("--print_time", type=str2bool, default=True, help="Print time statistics in terminal")
+    parser.add_argument('--get_speed', type=str2bool, default=False, help="Measure speed")
     parser.add_argument("--expn", "--experiment-name", type=str, default= datetime.now().strftime("%Y%m%d"))
     parser.add_argument('--exp_dir', default=relROOT / '..' / 'runs' / 'exp', help='experiment directory')
-    # parser.add_argument("--mqtt_wait", nargs='?', const=True, type=str2bool, default=False)  # True as default
-    # parser.add_argument("--with_semantics", nargs='?', const=True, type=str2bool, default=False)  # True as default
-    # tracking args
     parser.add_argument('--reid-weights', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt')
     parser.add_argument('--tracking_method', type=str, default='bytetrack', help='only bytetrack by now')
     parser.add_argument('--tracking_config', type=Path, default=None)

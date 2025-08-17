@@ -16,6 +16,7 @@ def vis(img, boxes, scores, cls_ids, conf=0.5, class_names=None):
         cls_id = int(cls_ids[i])
         score = scores[i]
         if score < conf:
+            print('Saltando por confidence')
             continue
         x0 = int(box[0])
         y0 = int(box[1])
@@ -48,110 +49,126 @@ def get_color(idx):
     color = ((37 * idx) % 255, (17 * idx) % 255, (29 * idx) % 255)
 
     return color
+# Estado del visualizador (solo coordenadas de píxeles)
+trail_last_px = {}
+trail_segments = {}
+MAX_SEGMENTS_PER_TRACK = None  # None = ilimitado
 
+def _bbox_int(box_tlwh):
+    x1, y1, w, h = box_tlwh
+    return int(x1), int(y1), int(x1 + w), int(y1 + h)
 
-# def plot_tracking(image, tlwhs, obj_ids, scores=None, flags = None, frame_id=0, fps=0., ids2=None):
-#     im = np.ascontiguousarray(np.copy(image))
-#     im_h, im_w = im.shape[:2]
+def _bbox_center(intbox):
+    x1, y1, x2, y2 = intbox
+    return ((x1 + x2) // 2, (y1 + y2) // 2)
 
-#     top_view = np.zeros([im_w, im_w, 3], dtype=np.uint8) + 255
+def _put_text(img, text, org, scale=0.45, color=(255,255,255), thick=1):
+    cv2.putText(img, text, org, cv2.FONT_HERSHEY_SIMPLEX,
+                scale, color, thick, cv2.LINE_AA)
 
-#     #text_scale = max(1, image.shape[1] / 1600.)
-#     #text_thickness = 2
-#     #line_thickness = max(1, int(image.shape[1] / 500.))
-#     text_scale = 2
-#     text_thickness = 2
-#     line_thickness = 3
+def _put_text_right(img, text, topright_xy, scale=0.55, color=(255,255,255), thick=2):
+    (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, scale, thick)
+    x = max(0, topright_xy[0] - tw - 5)
+    y = topright_xy[1] + th
+    cv2.putText(img, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX,
+                scale, color, thick, cv2.LINE_AA)
 
-#     radius = max(5, int(im_w/140.))
-#     cv2.putText(im, 'frame: %d fps: %.2f num: %d' % (frame_id, fps, len(tlwhs)),
-#                 (0, int(15 * text_scale)), cv2.FONT_HERSHEY_PLAIN, 2, (0, 0, 255), thickness=2)
+def plot_tracking(image, online_targets, frame_id=0, fps=0., ids2=None, get_semantic=False):
+    global trail_last_px, trail_segments
 
-#     for i, tlwh in enumerate(tlwhs):
-#         x1, y1, w, h = tlwh
-#         intbox = tuple(map(int, (x1, y1, x1 + w, y1 + h)))
-#         obj_id = int(obj_ids[i])
-#         id_text = '{}'.format(int(obj_id))
-#         flag = flags[i]
-        
-#         if ids2 is not None:
-#             id_text = id_text + ', {}'.format(int(ids2[i]))
-#         color = get_color(abs(obj_id))
-#         # Plot alerts bottom left
-#         if (flag): 
-#             line_thickness *= 2
-#             color = (255,255,255)
-            
-#             for  _, row in dfAlerts_current.iterrows():
-                    
-#                     frameNum, alertType, alertCategory, severity, description, alertId = int(row['frame']), row['alertType'], row['alertCategory'], row['severity'], row['description'], row['alertId']
-#                     label = f'{frameNum} | {alertId}: {alertType} {alertCategory} {severity} // {description}'
-#                     if (alertType != 0):
-#                         alertCounter += 1
-#                         alertX = alertXInit
-#                         alertY = alertYInit - (alertCounter * 25)
-#                         # print(f'{frameNum} {alertType} {alertCategory} {severity} {description} {alertId}')
-#                         cv2.putText(frame, label, (alertX, alertY), cv2.FONT_HERSHEY_SIMPLEX, .6, (255, 255, 255), 2, cv2.LINE_AA)
-            
-#         # Plot detection boxes
-#         cv2.rectangle(im, intbox[0:2], intbox[2:4], color=color, thickness=line_thickness)
-#         cv2.putText(im, id_text, (intbox[0], intbox[1]), cv2.FONT_HERSHEY_PLAIN, text_scale, (0, 0, 255),
-#                     thickness=text_thickness)
-
-#     return im
-
-
-def plot_tracking(image, online_targets, frame_id=0, fps=0., ids2=None, semantics = False):
     im = np.ascontiguousarray(np.copy(image))
-    im_h, im_w = im.shape[:2]
-
-    top_view = np.zeros([im_w, im_w, 3], dtype=np.uint8) + 255
-
-    #text_scale = max(1, image.shape[1] / 1600.)
-    #text_thickness = 2
-    #line_thickness = max(1, int(image.shape[1] / 500.))
-    text_scale = 2
-    text_thickness = 2
-    line_thickness = 3
-
-    radius = max(5, int(im_w/140.))
-    cv2.putText(im, 'SC - FrameId: %d fps: %.2f' % (frame_id, fps),
-                (0, int(15 * text_scale)), cv2.FONT_HERSHEY_PLAIN, 2, (0, 0, 255), thickness=2)
+    cv2.putText(im, f'SC - FrameId: {frame_id} fps: {fps:.2f}',
+                (0, 30), cv2.FONT_HERSHEY_PLAIN, 2, (0, 0, 255), 2)
 
     alertCounter = 0
 
     for i, t in enumerate(online_targets):
-        x1, y1, w, h = t.tlwh
-        intbox = tuple(map(int, (x1, y1, x1 + w, y1 + h)))
-        obj_id = int(t.track_id)
-        id_text = '{}'.format(int(obj_id))
-        
-        if ids2 is not None:
-            id_text = id_text + ', {}'.format(int(ids2[i]))
-        color = get_color(abs(obj_id))
-        # Plot alerts bottom left if exists
-        
-        label = ""
-        if (semantics):
-            if (t.event.alertFlag): 
-                line_thickness *= 3
-                label = f'{t.event.category} - {t.event.severity} - {t.track_id}'
-                print(f'Printing label: {label}')
-            
-            
+        # --- Solo activados y con edad válida
+        if not getattr(t, 'is_activated', False):
+            print('Saltando por is activated')
+
+            continue
+
+        # --- Si muere (state 2/3) borramos TODO su rastro en el visualizador
+        if getattr(t, "state", None) in (2, 3):
+            print('Saltando por state')
+            trail_last_px.pop(t.track_id, None)
+            trail_segments.pop(t.track_id, None)
+            continue
+
+        # --- Ignorar recien llegados
+        if getattr(t, "frames_since_update", 0) > 3:
+            print('Saltando por fsu')
+            continue
+
+        # --- Filtrar clase 1
+        if getattr(t, 'cl', None) == 1:
+            print('Filtrando peatones')
+            continue
+
+        # --- Caja y color
+        x1, y1, x2, y2 = _bbox_int(t.tlwh)
+        intbox = (x1, y1, x2, y2)
+        color = get_color(abs(int(t.track_id)))
+        line_thickness = 3
+
+        # (Opcional) semántica
+        if get_semantic and getattr(t, 'event', None) is not None and getattr(t.event, 'alertFlag', False):
+            line_thickness = 4
+            label = f'{t.event.category} - {t.event.severity} - {t.track_id}'
             alertCounter += 1
-            alertX = alertXInit
-            alertY = alertYInit - (alertCounter * 25)
-            # print(f'{frameNum} {alertType} {alertCategory} {severity} {description} {alertId}')
-            cv2.putText(im, label, (alertX, alertY), cv2.FONT_HERSHEY_SIMPLEX, .9, (0, 0, 255), 2, cv2.LINE_AA)
+            alertX, alertY = 10, 40 + alertCounter * 25
+            cv2.putText(im, label, (alertX, alertY),
+                        cv2.FONT_HERSHEY_SIMPLEX, .9, (0, 0, 255), 2, cv2.LINE_AA)
 
+        # --- Dibujo de caja
+        cv2.rectangle(im, (x1, y1), (x2, y2), color, line_thickness)
 
-        # Plot detection boxes
-        cv2.rectangle(im, intbox[0:2], intbox[2:4], color=color, thickness=line_thickness)
-        cv2.putText(im, id_text, (intbox[0], intbox[1]), cv2.FONT_HERSHEY_PLAIN, text_scale, (0, 0, 255),
-                    thickness=text_thickness)
+        # score
+        if getattr(t, 'score', None) is not None:
+            _put_text_right(im, f'{t.score:.2f}', (x2 - 5, y1 + 5), scale=0.55)
+
+        # median_speed dentro (esquina inf-izq, más pequeño)
+        if getattr(t, 'median_speed', None) is not None:
+            _put_text(im, f'{t.median_speed:.1f}', (x1 + 4, y2 - 4),
+                      scale=0.5, color=(0,255,255), thick=1)
+
+        # ID abajo-dcha dentro (más pequeño)
+        _put_text_right(im, f'{str(t.track_id)}', (x2 - 5, y2 - 20),
+                        scale=0.5, color=(0,255,0), thick=1)
+
+        # vector de velocidades fuera, pegado a esquina inf-izq
+        if getattr(t, 'speeds', None) is not None and len(t.speeds) > 0:
+            speeds_txt = ", ".join(f"{v:.1f}" for v in np.asarray(t.speeds).ravel().tolist())
+            _put_text(im, speeds_txt, (x1 + 5, y2 + 15),
+                      scale=0.4, color=(200,200,200), thick=1)
+
+        # === Trayectoria en píxeles ===
+        curr_px = _bbox_center(intbox)
+        prev_px = trail_last_px.get(t.track_id)
+
+        if prev_px is not None:
+            seg_list = trail_segments.setdefault(t.track_id, [])
+            # ahora solo guardamos pares de píxeles; distancia vendrá de t.distances
+            seg_list.append((prev_px, curr_px))
+            if isinstance(MAX_SEGMENTS_PER_TRACK, int) and len(seg_list) > MAX_SEGMENTS_PER_TRACK:
+                seg_list[:] = seg_list[-MAX_SEGMENTS_PER_TRACK:]
+
+        trail_last_px[t.track_id] = curr_px
+
+        # Dibujar segmentos con distancias desde t.distances
+        if t.track_id in trail_segments:
+            segs = trail_segments[t.track_id]
+            dists = getattr(t, 'distances', [])
+            for idx, (p1, p2) in enumerate(segs):
+                cv2.line(im, p1, p2, color, 2)
+                if idx < len(dists) and dists[idx] is not None:
+                    mid = ((p1[0] + p2[0]) // 2, (p1[1] + p2[1]) // 2)
+                    _put_text(im, f'{dists[idx]:.1f}m', (mid[0] + 4, mid[1] - 4),
+                              scale=0.45, color=(255,255,255), thick=1)
 
     return im
+
 
 _COLORS = np.array(
     [
