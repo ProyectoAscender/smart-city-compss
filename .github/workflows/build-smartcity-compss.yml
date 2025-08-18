@@ -23,6 +23,12 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Set up QEMU for ARM64 emulation
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
@@ -41,55 +47,101 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            # Branch-based tags
-            type=ref,event=branch,suffix=-{{date 'YYYYMMDD-HHmmss'}}
-            type=ref,event=branch
+            # Branch-based tags for ARM64
+            type=ref,event=branch,suffix=-arm64-{{date 'YYYYMMDD-HHmmss'}}
+            type=ref,event=branch,suffix=-arm64
             # Tag-based releases
-            type=ref,event=tag
-            # Latest tag for default branch
-            type=raw,value=latest,enable={{is_default_branch}}
-            # Development tags
-            type=raw,value=latest-LisDevelop,enable=${{ github.ref == 'refs/heads/LisDevelop' }}
+            type=ref,event=tag,suffix=-arm64
+            # Latest ARM64 tag for default branch
+            type=raw,value=latest-arm64,enable={{is_default_branch}}
+            # Development ARM64 tags
+            type=raw,value=latest-LisDevelop-arm64,enable=${{ github.ref == 'refs/heads/LisDevelop' }}
+            type=raw,value=jetson-latest,enable=${{ github.ref == 'refs/heads/LisDevelop' }}
           labels: |
-            org.opencontainers.image.title=SmartCity COMPSs
-            org.opencontainers.image.description=Real-time object tracking and analytics for smart cities
+            org.opencontainers.image.title=SmartCity COMPSs ARM64
+            org.opencontainers.image.description=Real-time object tracking and analytics for smart cities - ARM64 for Jetson devices
             org.opencontainers.image.vendor=ProyectoAscender
             org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.architecture=arm64
+            jetson.compatible=true
 
       - name: Free disk space
         run: |
+          echo "Free space before cleanup:"
+          df -h
           sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup
+          sudo rm -rf /usr/share/dotnet /opt/microsoft
           sudo apt-get clean
           docker system prune -af
+          echo "Free space after cleanup:"
+          df -h
 
-      - name: Build and push Docker image
+      - name: Build and push ARM64 Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/arm64  # ARM64 only for Jetson devices
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=arm64
+          cache-to: type=gha,mode=max,scope=arm64
           build-args: |
             ROOT_CONTAINER=oriolmac/compss-nvidia-debug:3.3
+          # Extended timeout for ARM64 cross-compilation
+          timeout: 180m
 
       - name: Generate build summary
         run: |
-          echo "## 🚀 Docker Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## 🚀 SmartCity COMPSs ARM64 Build Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Built Images:" >> $GITHUB_STEP_SUMMARY
+          echo "### 🎯 Target Architecture:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Platform**: linux/arm64" >> $GITHUB_STEP_SUMMARY
+          echo "- **Target Hardware**: Jetson AGX2 devices" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Type**: Cross-compilation with QEMU emulation" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🏷️ Built ARM64 Images:" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Pull Command:" >> $GITHUB_STEP_SUMMARY
+          echo "### 🐳 Jetson Pull Commands:" >> $GITHUB_STEP_SUMMARY
           echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-LisDevelop" >> $GITHUB_STEP_SUMMARY
+          echo "# Latest LisDevelop ARM64 build for Jetson:" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-LisDevelop-arm64" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Jetson-specific tag:" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:jetson-latest" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Verify architecture:" >> $GITHUB_STEP_SUMMARY
+          echo "docker inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:jetson-latest | grep Architecture" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Registry URL:" >> $GITHUB_STEP_SUMMARY
-          echo "https://github.com/orgs/proyectoAscender/packages/container/package/smart-city%2Fsmart-city-compss"
+          echo "### 🎯 Jetson Deployment:" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "# On Jetson AGX2 device:" >> $GITHUB_STEP_SUMMARY
+          echo "docker run --rm --gpus all \\" >> $GITHUB_STEP_SUMMARY
+          echo "  -v /data:/data \\" >> $GITHUB_STEP_SUMMARY
+          echo "  -p 8883:8883 \\" >> $GITHUB_STEP_SUMMARY
+          echo "  ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:jetson-latest \\" >> $GITHUB_STEP_SUMMARY
+          echo "  python3 src/main.py --mode=udp --edge_ips=192.168.89.254:8883" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Registry URL:" >> $GITHUB_STEP_SUMMARY
+          echo "[View ARM64 Package](https://github.com/orgs/proyectoAscender/packages/container/package/smart-city%2Fsmart-city-compss)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🏗️ ARM64 Image Features:" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **COMPSs 3.3** with NVIDIA GPU support" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **OpenCV 4.x** with GStreamer & CUDA acceleration" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **Kafka & Avro** streaming for real-time data" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **GDAL** for geospatial coordinate transformations" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **ByteTrack** multi-object tracking algorithms" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **Jetson AGX2** optimized for edge AI processing" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ⚙️ Hardware Requirements:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Min RAM**: 8GB (16GB recommended)" >> $GITHUB_STEP_SUMMARY
+          echo "- **GPU**: NVIDIA GPU with CUDA support" >> $GITHUB_STEP_SUMMARY
+          echo "- **Storage**: 10GB+ available space" >> $GITHUB_STEP_SUMMARY
+          echo "- **Network**: UDP/TCP connectivity to camera-edge devices" >> $GITHUB_STEP_SUMMARY
 
   
