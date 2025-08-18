@@ -1,0 +1,95 @@
+name: Build and Push Docker Image
+
+on:
+  push:
+    branches: [ LisDevelop ]
+    tags: [ 'v*' ]
+  workflow_dispatch: {}  # Allow manual trigger
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: proyectoascender/smart-city/smart-city-compss
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: network=host
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            # Branch-based tags
+            type=ref,event=branch,suffix=-{{date 'YYYYMMDD-HHmmss'}}
+            type=ref,event=branch
+            # Tag-based releases
+            type=ref,event=tag
+            # Latest tag for default branch
+            type=raw,value=latest,enable={{is_default_branch}}
+            # Development tags
+            type=raw,value=latest-LisDevelop,enable=${{ github.ref == 'refs/heads/LisDevelop' }}
+          labels: |
+            org.opencontainers.image.title=SmartCity COMPSs
+            org.opencontainers.image.description=Real-time object tracking and analytics for smart cities
+            org.opencontainers.image.vendor=ProyectoAscender
+            org.opencontainers.image.licenses=MIT
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup
+          sudo apt-get clean
+          docker system prune -af
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            ROOT_CONTAINER=oriolmac/compss-nvidia-debug:3.3
+
+      - name: Generate build summary
+        run: |
+          echo "## 🚀 Docker Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Built Images:" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Pull Command:" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-LisDevelop" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Registry URL:" >> $GITHUB_STEP_SUMMARY
+          echo "https://github.com/orgs/proyectoAscender/packages/container/package/smart-city%2Fsmart-city-compss"
+
+  
