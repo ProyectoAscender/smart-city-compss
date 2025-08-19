@@ -161,6 +161,7 @@ RUN --mount=type=cache,target=/var/cache/apt \
       gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
       gstreamer1.0-plugins-ugly gstreamer1.0-libav \
       libgstreamer-plugins-base1.0-dev \
+      libgstreamer1.0-dev \
       libgdal-dev gdal-bin libeigen3-dev nano vim; \
     rm -rf /var/lib/apt/lists/*
 
@@ -168,7 +169,7 @@ RUN --mount=type=cache,target=/var/cache/apt \
 RUN python3 -m pip install --no-cache-dir --upgrade pip && \
     python3 -m pip install --no-cache-dir numpy
 
-# ===== Build OpenCV (pinned, fast) =====
+# ===== Build OpenCV (pinned) =====
 ARG OPENCV_VERSION=4.9.0
 
 ADD https://github.com/opencv/opencv/archive/refs/tags/${OPENCV_VERSION}.tar.gz /tmp/opencv.tar.gz
@@ -186,6 +187,7 @@ RUN --mount=type=cache,target=/ccache \
     set -eux; \
     export CC="ccache gcc" CXX="ccache g++" CCACHE_DIR=/ccache; \
     mkdir -p /root/opencv/build && cd /root/opencv/build; \
+    OPY=$(python3 -c "import sysconfig; print(sysconfig.get_paths()['purelib'])"); \
     cmake -G Ninja \
       -D CMAKE_BUILD_TYPE=Release \
       -D CMAKE_INSTALL_PREFIX=/usr/local \
@@ -197,18 +199,24 @@ RUN --mount=type=cache,target=/ccache \
       -D BUILD_PERF_TESTS=OFF \
       -D BUILD_opencv_java=OFF \
       -D BUILD_opencv_world=ON \
-      -D BUILD_LIST=core,imgproc,imgcodecs,highgui,videoio,features2d,calib3d,photo,video,aruco,tracking \
-      -D PYTHON3_EXECUTABLE=$(command -v python3) \
-      -D PYTHON3_PACKAGES_PATH=$(python3 -c "import site; print(site.getsitepackages()[0])") \
-      -D PYTHON3_INCLUDE_DIR=$(python3 -c "import sysconfig; print(sysconfig.get_path('include'))") \
-      -D PYTHON3_NUMPY_INCLUDE_DIRS=$(python3 -c "import numpy; print(numpy.get_include())") \
+      -D BUILD_opencv_python3=ON \
+      -D OPENCV_PYTHON3_INSTALL_PATH="$OPY" \
+      -D PYTHON3_EXECUTABLE="$(command -v python3)" \
+      -D PYTHON3_INCLUDE_DIR="$(python3 -c "import sysconfig; print(sysconfig.get_path('include'))")" \
+      -D PYTHON3_PACKAGES_PATH="$OPY" \
+      -D PYTHON3_NUMPY_INCLUDE_DIRS="$(python3 -c "import numpy; print(numpy.get_include())")" \
       ..; \
     ninja -j"$(nproc)"; \
     ninja install; \
     ldconfig
 
-# Verify GStreamer integration
-RUN python3 -c "import cv2; print(cv2.getBuildInformation())" | grep -i gstreamer
+# Verify Python bindings + GStreamer integration
+RUN python3 - <<'PY'
+import sys, cv2, re
+print("cv2 module path:", cv2.__file__)
+bi = cv2.getBuildInformation()
+print("GStreamer enabled? ->", "YES" if re.search(r"GStreamer.*YES", bi, re.I) else "NO")
+PY
 
 # GDAL include paths for any native builds later
 ENV CPLUS_INCLUDE_PATH=/usr/include/gdal \
@@ -238,5 +246,4 @@ LABEL org.opencontainers.image.source="https://github.com/proyectoAscender/smart
       org.opencontainers.image.architecture="arm64" \
       jetson.compatible="true"
 
-# ENTRYPOINT ["./entrypoint.sh"]
 
