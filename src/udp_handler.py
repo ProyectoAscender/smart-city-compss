@@ -34,6 +34,12 @@ HOST_IP = utils.get_local_ip()
 # Global flag for exiting the program gracefully
 FINISH_PROGRAM = False
 
+
+# Global for det
+EMPTY_DET = np.empty((0, 6), dtype=np.float32)
+
+
+
 def signal_handler(sig, frame):
     global FINISH_PROGRAM
     print("\n[Signal Handler] Ctrl+C clicked! Closing execution...")
@@ -207,7 +213,7 @@ def run_udp(
     frameId = 0
     ts = 0
     # Time inicialization
-    timers = {name: Timer() for name in ['track', 'reception', 'wait_recv', 'processing', 'speed', 'video', 'semantics', 'total']}
+    timers = {name: Timer() for name in ['track', 'frame_reception', 'udp_decoding','udp_wait_reception', 'processing', 'speed', 'video', 'semantics', 'total', 'saving_results']}
             
     # Variable inicialization:
     skiped_frames = 0
@@ -224,14 +230,18 @@ def run_udp(
     # while frame_idx < NUM_ITERS:
     # Loop changed because Smart City can be faster than camera-edge
     while frameId <= NUM_ITERS or NEVEREND == True:
-        hex_data = ""
-        timers['total'].tic()                 
+        timers['total'].tic()
+        hex_data = ""                 
         new_hour = int(datetime.now().strftime("%M"))  
         frame_idx += 1
         
+        
+        
+        ###         Probably moving this to a separate thread would be nice... to fully decouples compute from IO.
+        timers['udp_wait_reception'].tic()
         # Loop to get the last message
         udpSock.setblocking(False)
-        timers['wait_recv'].tic()
+        
         while True:
             if FINISH_PROGRAM:
                 break   
@@ -242,14 +252,17 @@ def run_udp(
                 if(hex_data==""):   # hex_data is set to "" at the end of the processing loop
                     # print(f"[main.py - {CAM_ID}] No bounding box data, continuing...")
                     continue
-                timers['wait_recv'].toc()
+                timers['udp_wait_reception'].toc()
                 break
 
         udpSock.setblocking(True)
         if FINISH_PROGRAM:
             break
         
-        timers['reception'].tic()
+        
+        
+        
+        timers['frame_reception'].tic()
     
         # Receiving frame if needed
         if save_plot or view_plot:
@@ -261,7 +274,11 @@ def run_udp(
                 print('--- > frame received')
             # cv2.imwrite(f"./{frame_idx}_received.jpg", frame)
             
+        timers['frame_reception'].toc()
+            
         
+        
+        timers['udp_decoding'].tic()
         # Decode the message as per our template            
         frameData = list(comm_udp.decode_hex_bboxes(hex_data))
         
@@ -274,7 +291,7 @@ def run_udp(
             frameId = frameId + 1
             ts = ts + (1/(FPS if "FPS" in vars() else DEFAULT_FPS))
 
-        det = []
+        det = EMPTY_DET
         # Checking case zero info in frameData
         if not frameData:
             print(f'{CAM_ID} - No frameData: UDP hexadecimal decode failed')
@@ -284,23 +301,44 @@ def run_udp(
             # Last 6 elements from frame data are the detections: [x,y,w,h,score,classId]
             det = np.asarray([box[-6:] for box in frameData])
             
-        timers['reception'].toc()
+        timers['udp_decoding'].toc()
+        
+        
+
 
         ## TRACKING
         
         timers['track'].tic()
-        # Frames con detecciones
-        if det != []:
-            # Update tracker
-            online_targets = tracker_list[0].update(det, img_info, test_size)
+        
+        ### BUG REPORT  -   Tracker, according to the log analysis, seems to be the sole responsible for loosing 
+        ###                 Real Time processing over time. 
+        ###                 ByteTrack/StrongSORT-like trackers expect update every frame to age/prune tracks 
+        ###                 (track_buffer, timeouts, merges, duplicate removal, etc.). Skipping it lets 
+        ###                 tracked_stracks/lost_stracks quietly balloon, making each subsequent update slower and 
+        ###                 the downstream processing loop heavier.
+        
+        
+        ###                 Possibly issues caused by:
+        # # Frames con detecciones
+        # if det != []:
+        #     # Update tracker
+        #     online_targets = tracker_list[0].update(det, img_info, test_size)
 
-        # Frames sin detecciones. Actualizamos el tracker
-        else:
-            tracker_list[0].frame_id += 1  # Avanzamos el frame_id manualmente
-            for track in tracker_list[0].tracked_stracks:
-                track.frames_since_update += 1  # Incrementamos contador de no actualización
-            online_targets = []            
-            #print('Actualizando tracker sin nuevas detecciones ')
+        # # Frames sin detecciones. Actualizamos el tracker
+        # else:
+        #     tracker_list[0].frame_id += 1  # Avanzamos el frame_id manualmente
+        #     for track in tracker_list[0].tracked_stracks:
+        #         track.frames_since_update += 1  # Incrementamos contador de no actualización
+        #     online_targets = []            
+        #     #print('Actualizando tracker sin nuevas detecciones ')
+        
+        
+        ###                 Attempt to fix it 1:
+        ###                 det gets created already with the correct shape, only fills if boxes okay
+        online_targets = tracker_list[0].update(det, img_info, test_size)
+        
+        
+        
         
         # Collect and write results if online targets is not empty
         online_tlwhs = []
@@ -326,21 +364,33 @@ def run_udp(
             frame_results.append(line)
             results.append(line)  # results global, si lo quieres
             # online_flags(t.event.alertFlag)
+            
 
         timers['track'].toc()
+        
+        
 
-
+        
         # After results append, if "only_results" we dont need to process anything else of this frame
         if (only_results): 
+            timers['saving_results'].tic()
+            
+            print(f"\t -> Running on ONLY_RESULTS mode - only_results={only_results}")
             # We've checked every 300 frames if hour has changed.
             if (frame_idx % 300 == 0 and new_hour != current_hour):
                 utils.save_results(results, exp_dir, CAM_ID)
                 current_hour = new_hour
                 results = []
                 print(f"{CAM_ID} - Saving every 300 frames")
+                
+                timers['saving_results'].toc()
             else: 
                 print(f"{CAM_ID} - Acabando {frame_idx} - {frameId}")
+                
+                timers['saving_results'].toc()
+                
                 continue
+            
         
         
         
@@ -377,6 +427,9 @@ def run_udp(
                 sys.exit(1)
         timers['processing'].toc()
 
+
+
+
         timers['video'].tic()
 
         # Plotting video
@@ -392,7 +445,6 @@ def run_udp(
             else:
                 vid_writer2.write(online_im)
 
-        
         # View frame with plot
         if view_plot and os.environ.get("DISPLAY") is not None:
             # Show video
@@ -406,31 +458,47 @@ def run_udp(
             vid_sender.write(online_im)
             # print(f"WW2 {frameId}")
             # cv2.imwrite(f"./{frameId}.jpg", frame)
-
+            
         timers['video'].toc()
-
+        
+        
+        
         if frameId != frame_idx and frameId - frame_idx != skiped_frames:
             skiped_frames = frameId - frame_idx
             print(f"{CAM_ID} - \tSmartCity skipped one frame!! Total skipped frames: {frameId - frame_idx}")
             # break
 
-        timers['total'].toc() 
-        
         
         if (print_time and frame_idx % 30 == 0):
-            print(f'{CAM_ID} - Info every 10 frames - frameidx: {frame_idx}')
+            print(f'{CAM_ID} - Info every 30 frames - frameidx: {frame_idx}')
+            timers['total'].toc()
+            
+            
             for name, timer in timers.items():
-                print(f'{CAM_ID} - Avg. {name.capitalize()} Time: {timer.average_time}')
+                print(f'{CAM_ID} - Avg. {name.capitalize()} Time: {timer.average_time}')                
                 timer.clear()
+                
+                
+            timers['total'].tic()
+        
+        
+        
+        
+        
         
         # We check again and save results with speed
         if (frame_idx % 300 == 0 and new_hour != current_hour):
+            
+            timers['saving_results'].tic()
+            
+            
             folder_path = utils.save_results(all_results, exp_dir, CAM_ID)
             all_results , results = [] , []
             print(f"{CAM_ID} - Saving every 300 frames")
             
             video_path = os.path.join(folder_path, VIDEO_OUT_NAME)
             if save_plot:
+                
                 if current_hour % 2 == 0:
                     vid_writer.release()
                     vid_writer2 = cv2.VideoWriter(video_path, fourcc, FPS, (CAM_WIDTH, CAM_HEIGHT))
@@ -440,9 +508,18 @@ def run_udp(
                     vid_writer = cv2.VideoWriter(video_path, fourcc, FPS, (CAM_WIDTH, CAM_HEIGHT))
                     print(f"{CAM_ID} - New video file started: {video_path}, vid_writer")
             current_hour = new_hour
+            
+            timers['saving_results'].toc()
+            
+            timers['total'].toc() 
 
+        
         else: 
-            print(f"{CAM_ID} - Acabando {frame_idx} - {frameId}")
+            print(f"{CAM_ID} - Acabando {frame_idx} - {frameId} - {tm.time()}")
+            
+            timers['total'].toc() 
+            
+            
             continue
         
         print(f"{CAM_ID} - Finishing iter {frame_idx} ")
@@ -451,6 +528,15 @@ def run_udp(
         # if frameId >= NUM_ITERS and NEVEREND == False: 
         #     break
 
+        
+        
+        
+        
+        
+        
+        
+        
+        
     # WHILE ENDED
 
     print(f'{CAM_ID} - Camera edge while loop has ended')

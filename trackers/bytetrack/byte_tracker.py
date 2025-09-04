@@ -313,10 +313,43 @@ class BYTETracker(object):
         self.lost_stracks = sub_stracks(self.lost_stracks, self.tracked_stracks)
         self.lost_stracks.extend(lost_stracks)
         self.lost_stracks = sub_stracks(self.lost_stracks, self.removed_stracks)
-        self.removed_stracks.extend(removed_stracks)
+        self.removed_stracks.extend(removed_stracks)                 # <-- grows forever !!!!!This might be the issue with the RT 
+        
+        
+        
+        
+        # --- begin bound: keep removed_stracks bounded ---
+        # Keep only recently removed tracks (about 10× the lost buffer window)
+        cutoff = self.frame_id - (self.max_time_lost * 10)
+        if cutoff < 0:
+            cutoff = 0
+        self.removed_stracks = [t for t in self.removed_stracks if getattr(t, "end_frame", 0) >= cutoff]
+
+        # Hard size cap as a backstop
+        MAX_REMOVED = 4096                                              ####### We can see if this value is too short, or it is okay
+        if len(self.removed_stracks) > MAX_REMOVED:
+            # keep the most recent by end_frame
+            self.removed_stracks.sort(key=lambda t: getattr(t, "end_frame", -1))
+            self.removed_stracks = self.removed_stracks[-MAX_REMOVED:]
+        # --- end bound ---
+
+
+
+        
+        
         self.tracked_stracks, self.lost_stracks = remove_duplicate_stracks(self.tracked_stracks, self.lost_stracks)
         # get scores of lost tracks
         output_stracks = [track for track in self.tracked_stracks if track.is_activated]
+        
+        
+        
+        ### Print for debugging
+        if self.frame_id % 600 == 0:
+            print(f"tracked={len(self.tracked_stracks)} "
+                f"lost={len(self.lost_stracks)} "
+                f"removed_hist={len(self.removed_stracks)}")
+
+
 
         return output_stracks
 
