@@ -12,6 +12,7 @@ class Event(object):
     category = None
     severity = None # informational, low, medium, high
     polyType = 'None'
+    polygon_geometry = None  # Add this fieldfor geometry shape
     alertFlag = False
     frameId = 0   
     trackletId = 0
@@ -25,12 +26,15 @@ class Event(object):
                                 
     # This function sets the type of polygon the tracklet is in
 #    @task()
+
     def getPolType(self, t, polys):
         for j, pol in enumerate(polys):
             inOut = pol.poly.contains(geometry.Point(t.tlwh[0] + t.tlwh[2]/2, t.tlwh[1] + t.tlwh[3]))
             if(inOut):
                 self.polyType = pol.type
-
+                # Store the polygon geometry for WKT conversion
+                self.polygon_geometry = pol.poly
+                
     def eventType(self, t):
         if(t.cl == 0): # If car
             if(self.polyType == 'tramway'):

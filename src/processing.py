@@ -70,10 +70,23 @@ def speed_task(t, view_transformer, ts):
         
     return t, online_speeds
 
-def semantics_task(t, polys, ts , frameId, alerts):
+
+###Pasar la variable polygon_type
+def semantics_task(t, polys, ts, frameId, alerts):
     # Defining the kind or event or semantics polygon is on
     t.event = event.Event(t, polys, ts, frameId, t.track_id)
+    
+    # ADD THIS LINE: Set the polygon_type attribute on the tracklet
+    t.polygon_type = t.event.polyType
+    
     # t.event = compss_wait_on(t.event)
+    
+
+    # Add this line to also store the polygon geometry:
+    if hasattr(t.event, 'polygon_geometry') and t.event.polygon_geometry is not None:
+        t.polygon_geometry = t.event.polygon_geometry
+    else:
+        t.polygon_geometry = None
     if (alerts):
         if(t.event.alertFlag):
             alertInfo= str(t.event)

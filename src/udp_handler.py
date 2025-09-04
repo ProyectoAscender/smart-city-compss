@@ -378,37 +378,7 @@ def send_tracking_data_to_kafka(producer, topic, data, cam_id):
         print(f"Error sending data to Kafka: {e}")
         return False
 
-def convert_polygon_type_to_int(polygon_type):
-    """
-    Convert polygon_type to integer for Avro schema compatibility.
-    
-    Maps string polygon types to integer values as required by the Avro schema.
-    Provides standardized encoding for semantic area classification.
-    
-    Args:
-        polygon_type: String polygon type or existing integer
-    
-    Returns:
-        int: Mapped polygon type integer (0 for unknown/None)
-    """
-    if polygon_type is None:
-        return 0
-    if isinstance(polygon_type, int):
-        return polygon_type
-    if isinstance(polygon_type, str):
-        # Define mapping from string polygon types to integers
-        # These values correspond to semantic area classifications
-        polygon_mapping = {
-            "crosswalk": 1,
-            "street": 2,
-            "sidewalk": 3,
-            "parking": 4,
-            "building": 5,
-            "unknown": 0,
-            "": 0
-        }
-        return polygon_mapping.get(polygon_type.lower(), 0)
-    return 0
+
 
 
 # Pre-parsed Avro schema for performance optimization
@@ -903,7 +873,17 @@ def run_udp(
             utm_x = getattr(t, "utm_x", None)
             utm_y = getattr(t, "utm_y", None)
             polygon_type = getattr(t, "polygon_type", None)
+            polygon_geometry_obj = getattr(t, "polygon_geometry", None)
             speed_kmh = getattr(t, "speed_kmh", None)
+            
+            # Convert Shapely geometry to WKT format
+            polygon_geometry_wkt = None
+            if polygon_geometry_obj is not None:
+                try:
+                    polygon_geometry_wkt = polygon_geometry_obj.wkt
+                except Exception as e:
+                    print(f"{CAM_ID} - Error converting polygon to WKT: {e}")
+                    polygon_geometry_wkt = None
             
             # Use computed speed if not available on track object
             if speed_kmh is None and (get_speed and i < len(online_speeds)):
@@ -932,7 +912,8 @@ def run_udp(
                         "utm_x_m": float(utm_x) if utm_x is not None else 0.0,
                         "utm_y_m": float(utm_y) if utm_y is not None else 0.0,
                         "speed_kmh": float(speed_kmh) if speed_kmh is not None else 0.0,
-                        "polygon_type": convert_polygon_type_to_int(polygon_type),
+                        "polygon_type": polygon_type if polygon_type is not None else None,
+                        "polygon_geometry": polygon_geometry_wkt if polygon_geometry_wkt is not None else None,
                     },
                 }
                 
