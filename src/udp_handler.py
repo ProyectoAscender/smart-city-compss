@@ -445,7 +445,7 @@ HOST_IP = utils.get_local_ip()
 
 # Global flag for exiting the program gracefully
 FINISH_PROGRAM = False
-
+EMPTY_DET = np.empty((0, 6), dtype=np.float32)
 def signal_handler(sig, frame):
     global FINISH_PROGRAM
     print("\n[Signal Handler] Ctrl+C clicked! Closing execution...")
@@ -693,7 +693,7 @@ def run_udp(
     frameId = 0
     ts = 0
     # Time inicialization
-    timers = {name: Timer() for name in ['track', 'reception', 'wait_recv', 'processing', 'speed', 'video', 'semantics', 'total']}
+    timers = {name: Timer() for name in ['track', 'frame_reception', 'udp_decoding','udp_wait_reception', 'processing', 'speed', 'video', 'semantics', 'total', 'saving_results']}
             
     # Variable inicialization:
     skiped_frames = 0
@@ -711,14 +711,15 @@ def run_udp(
     # while frame_idx < NUM_ITERS:
     # Loop changed because Smart City can be faster than camera-edge
     while frameId <= NUM_ITERS or NEVEREND == True:
-        hex_data = ""
-        timers['total'].tic()                 
+          
+        timers['total'].tic()
+        hex_data = ""                 
         new_hour = int(datetime.now().strftime("%M"))  
         frame_idx += 1
 
         # Loop to get the last message
         udpSock.setblocking(False)
-        timers['wait_recv'].tic()
+        
         while True:
             if FINISH_PROGRAM:
                 break   
@@ -729,14 +730,14 @@ def run_udp(
                 if(hex_data==""):   # hex_data is set to "" at the end of the processing loop
                     # print(f"[main.py - {CAM_ID}] No bounding box data, continuing...")
                     continue
-                timers['wait_recv'].toc()
+                timers['udp_wait_reception'].toc()
                 break
 
         udpSock.setblocking(True)
         if FINISH_PROGRAM:
             break
         
-        timers['reception'].tic()
+        timers['frame_reception'].tic()
     
         # Receiving frame if needed
         if save_plot or view_plot:
@@ -748,7 +749,8 @@ def run_udp(
                 print('--- > frame received')
             # cv2.imwrite(f"./{frame_idx}_received.jpg", frame)
             
-        
+        timers['frame_reception'].toc()
+        timers['udp_decoding'].tic()
         # Decode the message as per our template            
         frameData = list(comm_udp.decode_hex_bboxes(hex_data))
         
@@ -783,7 +785,7 @@ def run_udp(
         ts_ms = to_epoch_millis(ts)
         #############################################################################
 
-        det = []
+        det = EMPTY_DET
         # Checking case zero info in frameData
         if not frameData:
             print(f'{CAM_ID} - No frameData: UDP hexadecimal decode failed')
@@ -793,28 +795,31 @@ def run_udp(
             # Last 6 elements from frame data are the detections: [x,y,w,h,score,classId]
             det = np.asarray([box[-6:] for box in frameData])
             
-        timers['reception'].toc()
+        timers['udp_decoding'].toc()
 
         timers['track'].tic()
-        ## TRACKING
-        # Frames con detecciones
-        if isinstance(det, np.ndarray) and det.size > 0:
-            # Update tracker
-            online_targets = tracker_list[0].update(det, img_info, test_size)
+        # ## TRACKING
+        # # Frames con detecciones
+        # if isinstance(det, np.ndarray) and det.size > 0:
+        #     # Update tracker
+        #     online_targets = tracker_list[0].update(det, img_info, test_size)
 
-        # Frames sin detecciones. Actualizamos el tracker
-        else:
-            tracker_list[0].frame_id += 1  # Avanzamos el frame_id manualmente
-            for track in tracker_list[0].tracked_stracks:
-                track.frames_since_update += 1  # Incrementamos contador de no actualización
-            online_targets = []            
-            #print('Actualizando tracker sin nuevas detecciones ')
-        
+        # # Frames sin detecciones. Actualizamos el tracker
+        # else:
+        #     tracker_list[0].frame_id += 1  # Avanzamos el frame_id manualmente
+        #     for track in tracker_list[0].tracked_stracks:
+        #         track.frames_since_update += 1  # Incrementamos contador de no actualización
+        #     online_targets = []            
+        #     #print('Actualizando tracker sin nuevas detecciones ')
+        online_targets = tracker_list[0].update(det, img_info, test_size)
+
         # Collect and write results if online targets is not empty
+        
         if (get_speed): online_speeds = []
         # Discard non-consolidated data
+        online_targets = [t for t in online_targets if t.is_consolidated]
+        if (get_speed): online_speeds = [s for s in online_speeds if s.is_consolidated]
 
-        
         timers['track'].toc()
         
 
@@ -823,6 +828,9 @@ def run_udp(
         
         # After data processing, if "only_results" we dont need to process anything else of this frame
         if (only_results): 
+            timers['saving_results'].tic()
+            
+            print(f"\t -> Running on ONLY_RESULTS mode - only_results={only_results}")
             # FRAME-BASED FLUSH MANAGEMENT
             # Implement intelligent flushing strategy for optimal performance vs latency
             if use_kafka and kafka_producer:
@@ -830,13 +838,14 @@ def run_udp(
                 if kafka_flush_interval > 0 and frame_idx % kafka_flush_interval == 0:
                     kafka_producer.flush()
                     print(f"{CAM_ID} - Kafka producer flushed at frame {frame_idx} (every {kafka_flush_interval} frames)")
-                
+                    timers['saving_results'].toc()
                 # Secondary flush strategy: Hourly backup flush (every 300 frames)
                 elif frame_idx % 300 == 0:
                     if new_hour != current_hour:
                         kafka_producer.flush()
                         print(f"{CAM_ID} - Kafka producer flushed due to hour change at frame {frame_idx}")
                         current_hour = new_hour
+                        timers['saving_results'].toc()
             else:
                 # CSV fallback: save every 300 frames or hour change
                 if frame_idx % 300 == 0 and new_hour != current_hour:
@@ -844,6 +853,7 @@ def run_udp(
                     results = []
                     print(f"{CAM_ID} - Saving CSV results every 300 frames")
                     current_hour = new_hour
+                    timers['saving_results'].toc()
             
             print(f"{CAM_ID} - Acabando {frame_idx} - {frameId}")
             continue
@@ -1036,14 +1046,15 @@ def run_udp(
         
         
         if (print_time and frame_idx % 30 == 0):
-            print(f'{CAM_ID} - Info every 10 frames - frameidx: {frame_idx}')
+            print(f'{CAM_ID} - Info every 30 frames - frameidx: {frame_idx}')
             for name, timer in timers.items():
                 print(f'{CAM_ID} - Avg. {name.capitalize()} Time: {timer.average_time}')
                 timer.clear()
+            timers['total'].tic()
         # We check again and save results with speed
 
         if (frame_idx % 300 == 0 and new_hour != current_hour):
-
+            timers['saving_results'].tic()
             folder_path = utils.save_results(all_results, exp_dir, CAM_ID)
 
             all_results , results = [] , []
@@ -1073,13 +1084,14 @@ def run_udp(
                     print(f"{CAM_ID} - New video file started: {video_path}, vid_writer")
 
             current_hour = new_hour
-
+            timers['saving_results'].toc()
+            timers['total'].toc()
 
 
         else: 
 
-            print(f"{CAM_ID} - Acabando {frame_idx} - {frameId}")
-
+            print(f"{CAM_ID} - Acabando {frame_idx} - {frameId} - {tm.time()}")
+            timers['total'].toc() 
             continue
         print(f"{CAM_ID} - Finishing iter {frame_idx} ")
         

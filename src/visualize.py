@@ -103,7 +103,7 @@ def plot_tracking(image, online_targets, frame_id=0, fps=0., ids2=None, get_sema
 
         # --- Filtrar clase 1
         if getattr(t, 'cl', None) == 1:
-            print('Filtrando peatones')
+            # print('Filtrando peatones')
             continue
 
         # --- Caja y color

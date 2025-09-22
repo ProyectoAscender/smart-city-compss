@@ -30,15 +30,15 @@ def speed_task(t, view_transformer, ts):
     
     
     if t.prev_location is not None: 
-        print(f'XXXXX prev loc: {t.prev_location}')
-        print(f'XXXXX loc: {t.location}')
+        # print(f'XXXXX prev loc: {t.prev_location}')
+        # print(f'XXXXX loc: {t.location}')
         distance = np.sqrt(np.sum(np.power(t.location - t.prev_location, 2)))
         t.distances = np.append(t.distances, distance)
         t.prev_location = t.location
 
     else: 
         online_speeds = f"#{t.track_id} NaN km/h /n"
-        print(f'XXXXX first prev loc: {t.prev_location}')
+        # print(f'XXXXX first prev loc: {t.prev_location}')
         t.prev_location = t.location
 
     if t.prev_ts is not None:
@@ -47,8 +47,8 @@ def speed_task(t, view_transformer, ts):
     
    
         # Calculate speed
-        print(f'XXXXX delta_ts: {delta_ts}')
-        print(f'XXXXX distance: {distance}')
+        # print(f'XXXXX delta_ts: {delta_ts}')
+        # print(f'XXXXX distance: {distance}')
 
         speed = (distance / (delta_ts / 1000000)) * 3.6
         # t.speeds = np.append(t.speeds, speed)
@@ -60,7 +60,7 @@ def speed_task(t, view_transformer, ts):
         else:
             t.speeds = np.append(t.speeds, speed)
             
-        print(f'XXXXX speed: {t.speeds} for {t.track_id}')
+        # print(f'XXXXX speed: {t.speeds} for {t.track_id}')
         t.median_speed = np.median(t.speeds)
         online_speeds = f"#{t.track_id} {t.median_speed.astype(int)} km/h /n" # 
     else:
