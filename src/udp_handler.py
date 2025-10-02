@@ -1,9 +1,4 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Wed Oct  1 16:45:45 2025
-
-@author: EstibalizEchevarriaG
-"""
 
 import numpy as np
 import shutil
@@ -479,6 +474,7 @@ def run_udp(
         #     #print('Actualizando tracker sin nuevas detecciones ')
         ###                 Attempt to fix it 1:
         ###                 det gets created already with the correct shape, only fills if boxes okay
+        
         online_targets = tracker_list[0].update(det, img_info, test_size)
 
         # Collect and write results if online targets is not empty
@@ -719,7 +715,7 @@ def run_udp(
 
         # View frame with plot
         if view_plot and os.environ.get("DISPLAY") is not None:
-            cv2.imshow(f"Tracking", online_im)
+            cv2.imshow("Tracking", online_im)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
         elif view_plot and os.environ.get("DISPLAY") is None:
