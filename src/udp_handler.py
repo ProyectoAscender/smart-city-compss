@@ -31,14 +31,9 @@ from pycompss.api.api import compss_wait_on
 ###################################################################
 from src.kafka_schema_registry import (
     create_schema_registry_client,
-    get_or_register_schema,
     create_kafka_producer,
     send_tracking_data_to_kafka,
-    convert_polygon_type_to_int,
-    avro_serialize,
-    TRACKING_AVRO_SCHEMA,
-    SCHEMA_REGISTRY_AVAILABLE,
-    get_kafka_config_from_env
+    convert_polygon_type_to_int
 )
 ####################################################################
 ###################################################################
