@@ -161,6 +161,7 @@ def run_udp(
     kafka_producer = None
     if use_kafka:
         kafka_producer = create_kafka_producer(
+            topic_name=kafka_topic,   #  pass the real topic here (now required)
             kafka_bootstrap_servers=kafka_bootstrap_servers,
             kafka_username=kafka_username,
             kafka_password=kafka_password,
@@ -171,7 +172,6 @@ def run_udp(
             kafka_ssl_keyfile=kafka_ssl_keyfile,
             schema_registry_client=schema_registry_client,
             avro_schema_subject=avro_schema_subject,
-            topic_name=kafka_topic,   #  pass the real topic here
         )
 
         if kafka_producer:

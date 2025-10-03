@@ -209,10 +209,10 @@ def convert_polygon_type_to_int(polygon_type):
 
 
 
-def create_kafka_producer(kafka_bootstrap_servers="localhost:9092", kafka_username=None, kafka_password=None, 
+def create_kafka_producer(topic_name, kafka_bootstrap_servers="localhost:9092", kafka_username=None, kafka_password=None, 
                           kafka_security_protocol="PLAINTEXT", kafka_sasl_mechanism="SCRAM-SHA-512", 
                           kafka_ssl_cafile=None, kafka_ssl_certfile=None, kafka_ssl_keyfile=None,
-                          schema_registry_client=None, avro_schema_subject=None, topic_name=None):
+                          schema_registry_client=None, avro_schema_subject=None):
     """
     Create and configure a Kafka producer with Avro serialization support.
     
@@ -223,6 +223,7 @@ def create_kafka_producer(kafka_bootstrap_servers="localhost:9092", kafka_userna
     - Performance optimization settings
     
     Args:
+        topic_name (str): Kafka topic name for context (required)
         kafka_bootstrap_servers (str): Comma-separated list of Kafka brokers
         kafka_username (str, optional): SASL username for authentication
         kafka_password (str, optional): SASL password for authentication
@@ -233,12 +234,15 @@ def create_kafka_producer(kafka_bootstrap_servers="localhost:9092", kafka_userna
         kafka_ssl_keyfile (str, optional): Path to client private key file
         schema_registry_client: Schema Registry client for enterprise deployments
         avro_schema_subject (str, optional): Schema subject name in Schema Registry
-        topic_name (str, optional): Kafka topic name for context
     
     Returns:
         KafkaProducer or None: Configured producer instance or None on failure
     """
     from kafka import KafkaProducer
+    
+    # Validate required parameters
+    if not topic_name:
+        raise ValueError("topic_name is required and cannot be None or empty")
     
     use_schema_registry = schema_registry_client is not None
 
