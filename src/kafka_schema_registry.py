@@ -5,6 +5,7 @@ import io
 import avro.schema
 import avro.io
 import os
+import time
 
 # Schema Registry imports for enterprise Avro schema management
 try:
@@ -50,7 +51,7 @@ TRACKING_AVRO_SCHEMA = """
           { "name": "utm_x_m", "type": "double" },
           { "name": "utm_y_m", "type": "double" },
           { "name": "speed_kmh", "type": "float" },
-          { "name": "polygon_type", "type": "int" }
+          { "name": "polygon_type", "type": ["null", "string"] }
         ]
       },
       "doc": "(UTM_x, UTM_y, velocidad, tipo_poligono)"
@@ -61,7 +62,14 @@ TRACKING_AVRO_SCHEMA = """
 
 # Pre-parsed Avro schema for performance optimization
 # Parsing the schema once at module level avoids repeated parsing costs
-_PARSED_TRACKING_SCHEMA = avro.schema.parse(TRACKING_AVRO_SCHEMA)
+_PARSED_TRACKING_SCHEMA = None
+
+def get_parsed_schema():
+    """Get the parsed Avro schema, parsing it if not already done."""
+    global _PARSED_TRACKING_SCHEMA
+    if _PARSED_TRACKING_SCHEMA is None:
+        _PARSED_TRACKING_SCHEMA = avro.schema.parse(TRACKING_AVRO_SCHEMA)
+    return _PARSED_TRACKING_SCHEMA
 
 def create_schema_registry_client(schema_registry_url, username=None, password=None,
                                   ssl_ca_location=None, ssl_cert_location=None, ssl_key_location=None):
@@ -166,7 +174,8 @@ def avro_serialize(data):
         bytes or None: Serialized Avro bytes or None on error
     """
     try:
-        writer = avro.io.DatumWriter(_PARSED_TRACKING_SCHEMA)
+        schema = get_parsed_schema()
+        writer = avro.io.DatumWriter(schema)
         bytes_writer = io.BytesIO()
         encoder = avro.io.BinaryEncoder(bytes_writer)
         writer.write(data, encoder)
@@ -175,37 +184,41 @@ def avro_serialize(data):
         print(f"Error serializing Avro data: {e}")
         return None
 
-def convert_polygon_type_to_int(polygon_type):
+def convert_polygon_type_to_string(polygon_type):
     """
-    Convert polygon_type to integer for Avro schema compatibility.
+    Convert polygon_type to string for Avro schema compatibility.
     
-    Maps string polygon types to integer values as required by the Avro schema.
-    Provides standardized encoding for semantic area classification.
+    Maps various polygon type formats to standardized string values 
+    as required by the Avro schema that expects ['null', 'string'].
     
     Args:
-        polygon_type: String polygon type or existing integer
+        polygon_type: String, integer, or None polygon type
     
     Returns:
-        int: Mapped polygon type integer (0 for unknown/None)
+        str or None: Mapped polygon type string or None for unknown/empty
     """
     if polygon_type is None:
-        return 0
-    if isinstance(polygon_type, int):
-        return polygon_type
+        return None
+    
     if isinstance(polygon_type, str):
-        # Define mapping from string polygon types to integers
+        if polygon_type.strip() == "":
+            return None
+        return polygon_type.strip().lower()
+    
+    if isinstance(polygon_type, int):
+        # Define mapping from integer polygon types to strings
         # These values correspond to semantic area classifications
-        polygon_mapping = {
-            "crosswalk": 1,
-            "street": 2,
-            "sidewalk": 3,
-            "parking": 4,
-            "building": 5,
-            "unknown": 0,
-            "": 0
+        int_to_string_mapping = {
+            0: None,  # unknown/unset
+            1: "crosswalk",
+            2: "street", 
+            3: "sidewalk",
+            4: "parking",
+            5: "building"
         }
-        return polygon_mapping.get(polygon_type.lower(), 0)
-    return 0
+        return int_to_string_mapping.get(polygon_type, None)
+    
+    return None
 
 
 
@@ -318,6 +331,20 @@ def send_tracking_data_to_kafka(producer, topic, data, cam_id):
         bool: True if successful, False otherwise
     """
     try:
+        # Validate timestamp value
+        if 'ts' in data:
+            ts_val = data['ts']
+            if not isinstance(ts_val, int) or ts_val <= 0:
+                print(f"[Kafka] Warning: Invalid timestamp {ts_val}, using current time")
+                data['ts'] = int(time.time() * 1000)
+        
+        # Validate polygon_type in utm field
+        if 'utm' in data and 'polygon_type' in data['utm']:
+            polygon_val = data['utm']['polygon_type']
+            if polygon_val is not None and not isinstance(polygon_val, str):
+                print(f"[Kafka] Warning: Invalid polygon_type {polygon_val} (type: {type(polygon_val)}), converting to None")
+                data['utm']['polygon_type'] = None
+        
         # Use cam_id + track_id as the message key for consistent partitioning
         # This ensures all messages from the same track go to the same partition
         key = f"{cam_id}_{data['track_id']}"
