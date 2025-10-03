@@ -51,7 +51,7 @@ TRACKING_AVRO_SCHEMA = """
           { "name": "utm_x_m", "type": "double" },
           { "name": "utm_y_m", "type": "double" },
           { "name": "speed_kmh", "type": "float" },
-          { "name": "polygon_type", "type": ["null", "string"] }
+          { "name": "polygon_type", "type": ["null", "string"], "doc": "Semantic polygon type (road, tramway, bikeLane, etc.)" }
         ]
       },
       "doc": "(UTM_x, UTM_y, velocidad, tipo_poligono)"
@@ -184,41 +184,7 @@ def avro_serialize(data):
         print(f"Error serializing Avro data: {e}")
         return None
 
-def convert_polygon_type_to_string(polygon_type):
-    """
-    Convert polygon_type to string for Avro schema compatibility.
-    
-    Maps various polygon type formats to standardized string values 
-    as required by the Avro schema that expects ['null', 'string'].
-    
-    Args:
-        polygon_type: String, integer, or None polygon type
-    
-    Returns:
-        str or None: Mapped polygon type string or None for unknown/empty
-    """
-    if polygon_type is None:
-        return None
-    
-    if isinstance(polygon_type, str):
-        if polygon_type.strip() == "":
-            return None
-        return polygon_type.strip().lower()
-    
-    if isinstance(polygon_type, int):
-        # Define mapping from integer polygon types to strings
-        # These values correspond to semantic area classifications
-        int_to_string_mapping = {
-            0: None,  # unknown/unset
-            1: "crosswalk",
-            2: "street", 
-            3: "sidewalk",
-            4: "parking",
-            5: "building"
-        }
-        return int_to_string_mapping.get(polygon_type, None)
-    
-    return None
+
 
 
 

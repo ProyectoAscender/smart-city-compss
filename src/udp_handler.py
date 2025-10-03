@@ -27,8 +27,7 @@ from pycompss.api.api import compss_wait_on
 from src.kafka_schema_registry import (
     create_schema_registry_client,
     create_kafka_producer,
-    send_tracking_data_to_kafka,
-    convert_polygon_type_to_string
+    send_tracking_data_to_kafka
 )
 ####################################################################
 ###################################################################
@@ -675,7 +674,7 @@ def run_udp(
                         "utm_x_m": float(utm_info.get('utm_x_m', 0.0)),
                         "utm_y_m": float(utm_info.get('utm_y_m', 0.0)),
                         "speed_kmh": float(utm_info.get('speed_kmh', 0.0)),
-                        "polygon_type": convert_polygon_type_to_string(utm_info.get('polygon_type', 0))
+                        "polygon_type": utm_info.get('polygon_type', None)
                     }
                 }
                 
