@@ -297,19 +297,19 @@ def send_tracking_data_to_kafka(producer, topic, data, cam_id):
         bool: True if successful, False otherwise
     """
     try:
-        # Validate timestamp value
-        if 'ts' in data:
-            ts_val = data['ts']
-            if not isinstance(ts_val, int) or ts_val <= 0:
-                print(f"[Kafka] Warning: Invalid timestamp {ts_val}, using current time")
-                data['ts'] = int(time.time() * 1000)
+        # # Validate timestamp value
+        # if 'ts' in data:
+        #     ts_val = data['ts']
+        #     if not isinstance(ts_val, int) or ts_val <= 0:
+        #         print(f"[Kafka] Warning: Invalid timestamp {ts_val}, using current time")
+        #         data['ts'] = int(time.time() * 1000)
         
-        # Validate polygon_type in utm field
-        if 'utm' in data and 'polygon_type' in data['utm']:
-            polygon_val = data['utm']['polygon_type']
-            if polygon_val is not None and not isinstance(polygon_val, str):
-                print(f"[Kafka] Warning: Invalid polygon_type {polygon_val} (type: {type(polygon_val)}), converting to None")
-                data['utm']['polygon_type'] = None
+        # # Validate polygon_type in utm field
+        # if 'utm' in data and 'polygon_type' in data['utm']:
+        #     polygon_val = data['utm']['polygon_type']
+        #     if polygon_val is not None and not isinstance(polygon_val, str):
+        #         print(f"[Kafka] Warning: Invalid polygon_type {polygon_val} (type: {type(polygon_val)}), converting to None")
+        #         data['utm']['polygon_type'] = None
         
         # Use cam_id + track_id as the message key for consistent partitioning
         # This ensures all messages from the same track go to the same partition

@@ -411,48 +411,40 @@ def run_udp(
         # ... after setting frameId and ts ...
         ###########################################################
         def to_epoch_millis(ts_val):
+
             """
+
             Convert a timestamp to epoch milliseconds.
+
             - If already in ms (>= 1e12), return as int.
+
             - If in seconds since epoch (>= 1e9), convert to ms.
+
             - Otherwise assume relative seconds and anchor to 'now'.
+
             """
+
             try:
-                current_time_ms = int(time.time() * 1000)
-                
-                # Handle string timestamps
-                if isinstance(ts_val, str):
-                    ts_val = float(ts_val)
-                
-                # Check if timestamp is reasonable (between 2020 and 2030)
-                min_valid_ts_ms = 1577836800000  # 2020-01-01 00:00:00 UTC
-                max_valid_ts_ms = 1893456000000  # 2030-01-01 00:00:00 UTC
-                
-                if ts_val >= 1_000_000_000_000:    # already in ms
-                    ts_ms = int(ts_val)
-                    if min_valid_ts_ms <= ts_ms <= max_valid_ts_ms:
-                        return ts_ms
-                    else:
-                        print(f"Timestamp {ts_ms} outside valid range, using current time")
-                        return current_time_ms
-                        
-                elif ts_val >= 1_000_000_000:        # seconds since epoch
-                    ts_ms = int(round(ts_val * 1000))
-                    if min_valid_ts_ms <= ts_ms <= max_valid_ts_ms:
-                        return ts_ms
-                    else:
-                        print(f"Timestamp {ts_ms} outside valid range, using current time")
-                        return current_time_ms
-                else:
-                    # relative seconds -> anchor to current time
-                    return current_time_ms + int(round(ts_val * 1000))
-                    
-            except Exception as e:
+
+                if ts_val >= 1_000_000_000_000:    # already ms
+
+                    return int(ts_val)
+
+                if ts_val >= 1_000_000_000:        # seconds since epoch
+
+                    return int(round(ts_val * 1000))
+
+                # relative seconds -> anchor to current time
+
+                return int(time.time() * 1000) + int(round(ts_val * 1000))
+
+            except Exception:
                 print(f"Error converting timestamp {ts_val}: {e}, using current time")
                 return int(time.time() * 1000)
         
         # Convert ts to epoch milliseconds
         ts_ms = to_epoch_millis(ts)
+
         #############################################################################
 
         det = EMPTY_DET
