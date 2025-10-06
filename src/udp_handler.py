@@ -459,9 +459,10 @@ def run_udp(
 
         # ... after setting frameId and ts ...
         
-        
+        ###############################################################################
         # Convert to epoch milliseconds (UTC reference)
-        ts_ms = to_epoch_millis(ts)
+        # ts_ms = to_epoch_millis(ts)
+        ts_ms=ts
 
         #############################################################################
 
@@ -564,6 +565,13 @@ def run_udp(
             if use_kafka and kafka_producer:
                 # Build and send tracking data to Kafka
                 for i, t in enumerate(online_targets):
+                    #####################################################################3
+                    # Extract UTM values from track object
+                    utm_x_m = float(t.location[0]) if hasattr(t, 'location') and t.location is not None else 0.0
+                    utm_y_m = float(t.location[1]) if hasattr(t, 'location') and t.location is not None else 0.0  
+                    speed_kmh = float(t.median_speed) if hasattr(t, 'median_speed') else 0.0
+                    polygon_type = t.event.polyType if hasattr(t, 'event') else None
+                    ########################################################################
                     # Build Kafka message data
                     data = {
                         "cam_id": str(CAM_ID),
@@ -577,10 +585,10 @@ def run_udp(
                         "box_score": float(t.score),
                         "class_box": int(getattr(t, 'cl', 0)),
                         "utm": {
-                            "utm_x_m": 0.0,  # Default values
-                            "utm_y_m": 0.0,
-                            "speed_kmh": 0.0,
-                            "polygon_type": None  # Changed to None for null value
+                            "utm_x_m": utm_x_m,
+                            "utm_y_m": utm_y_m,
+                            "speed_kmh": speed_kmh,
+                            "polygon_type": polygon_type
                         }
                     }
                     
@@ -663,10 +671,13 @@ def run_udp(
         # Process each detected object and send to Kafka or store for CSV
         #########################################################################################
         for i, t in enumerate(online_targets):
-            # Get semantic information if available
-            semantic_info = frame_results[i] if i < len(frame_results) else {}
-            utm_info = semantic_info.get('utm', {})
-            
+            #####################################################################
+            # Extract UTM values from track object (proper source)
+            utm_x_m = float(t.location[0]) if hasattr(t, 'location') and t.location is not None else 0.0
+            utm_y_m = float(t.location[1]) if hasattr(t, 'location') and t.location is not None else 0.0  
+            speed_kmh = float(t.median_speed) if hasattr(t, 'median_speed') else 0.0
+            polygon_type = t.event.polyType if hasattr(t, 'event') else None
+            #########################################################################
             if use_kafka and kafka_producer:
                 # Build Kafka message data
                 data = {
@@ -681,10 +692,10 @@ def run_udp(
                     "box_score": float(t.score),
                     "class_box": int(getattr(t, 'cl', 0)),
                     "utm": {
-                        "utm_x_m": float(utm_info.get('utm_x_m', 0.0)),
-                        "utm_y_m": float(utm_info.get('utm_y_m', 0.0)),
-                        "speed_kmh": float(utm_info.get('speed_kmh', 0.0)),
-                        "polygon_type": utm_info.get('polygon_type', None)
+                        "utm_x_m": utm_x_m,
+                        "utm_y_m": utm_y_m,
+                        "speed_kmh": speed_kmh,
+                        "polygon_type": polygon_type
                     }
                 }
                 
