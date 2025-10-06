@@ -71,6 +71,55 @@ signal.signal(signal.SIGINT, signal_handler)
 #     except Exception as e:
 #         print(f"{cam_id} - Error saving CSV: {e}")
 
+######################################################################
+# ======================================================
+# Capture base timestamp once at process start (Europe/Madrid local time)
+# ======================================================
+BASE_TZ = ZoneInfo("Europe/Madrid")
+BASE_TIME = datetime.now(BASE_TZ)
+BASE_EPOCH_MS = int(BASE_TIME.timestamp() * 1000)
+
+def to_epoch_millis(ts_val):
+    """
+    Convert various timestamp formats to epoch milliseconds (UTC reference),
+    interpreting naive datetimes as Europe/Madrid local time.
+    
+    If a relative timestamp (seconds/ms/µs) is provided, it is added to BASE_TIME.
+    """
+    try:
+        # --- Case 1: ISO 8601 string ---
+        if isinstance(ts_val, str):
+            if ts_val.endswith("Z"):
+                dt = datetime.fromisoformat(ts_val.replace("Z", "+00:00"))
+            else:
+                dt = datetime.fromisoformat(ts_val)
+
+            # If no timezone → assume Europe/Madrid local time
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=BASE_TZ)
+
+            # Convert to UTC epoch ms
+            return int(dt.astimezone(timezone.utc).timestamp() * 1000)
+
+        # --- Case 2: Numeric value ---
+        if isinstance(ts_val, (int, float)):
+            # Detect scale
+            if ts_val > 1e15:       # nanoseconds
+                return int(ts_val / 1_000_000)
+            elif ts_val > 1e12:     # milliseconds
+                return int(ts_val)
+            elif ts_val > 1e9:      # seconds
+                return int(ts_val * 1000)
+            else:
+                # Relative seconds → add to base timestamp
+                return BASE_EPOCH_MS + int(ts_val * 1000)
+
+    except Exception as e:
+        print(f"[to_epoch_millis] Error parsing '{ts_val}': {e}")
+
+    # --- Fallback: current local time ---
+    return int(datetime.now(BASE_TZ).timestamp() * 1000)
+#########################################################################################
 def run_udp(
         edge_ip=None,
         track_thresh=None,
@@ -409,40 +458,9 @@ def run_udp(
             ts = ts + (1/(FPS if "FPS" in vars() else DEFAULT_FPS))
 
         # ... after setting frameId and ts ...
-        ###########################################################
-        def to_epoch_millis(ts_val):
-
-            """
-
-            Convert a timestamp to epoch milliseconds.
-
-            - If already in ms (>= 1e12), return as int.
-
-            - If in seconds since epoch (>= 1e9), convert to ms.
-
-            - Otherwise assume relative seconds and anchor to 'now'.
-
-            """
-
-            try:
-
-                if ts_val >= 1_000_000_000_000:    # already ms
-
-                    return int(ts_val)
-
-                if ts_val >= 1_000_000_000:        # seconds since epoch
-
-                    return int(round(ts_val * 1000))
-
-                # relative seconds -> anchor to current time
-
-                return int(time.time() * 1000) + int(round(ts_val * 1000))
-
-            except Exception:
-                print(f"Error converting timestamp {ts_val}: {e}, using current time")
-                return int(time.time() * 1000)
         
-        # Convert ts to epoch milliseconds
+        
+        # Convert to epoch milliseconds (UTC reference)
         ts_ms = to_epoch_millis(ts)
 
         #############################################################################
@@ -932,3 +950,4 @@ def main_udp(opt):
         
 
         # reid_weights=opt.reid_weights,
+
