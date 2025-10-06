@@ -556,57 +556,60 @@ def run_udp(
         ##########################################################################################
         #ADD option to only send results to Kafka or CSV, without any other processing
         #########################################################################################
-        if (only_results): 
-            timers['saving_results'].tic()
+        # if (only_results): 
+        #     timers['saving_results'].tic()
             
-            print(f"\t -> Running on ONLY_RESULTS mode - only_results={only_results}")
-            # FRAME-BASED FLUSH MANAGEMENT
-            # Implement intelligent flushing strategy for optimal performance vs latency
-            if use_kafka and kafka_producer:
-                # Build and send tracking data to Kafka
-                for i, t in enumerate(online_targets):
-                    #####################################################################3
-                    # Extract UTM values from track object
-                    utm_x_m = float(t.location[0]) if hasattr(t, 'location') and t.location is not None else 0.0
-                    utm_y_m = float(t.location[1]) if hasattr(t, 'location') and t.location is not None else 0.0  
-                    speed_kmh = float(t.median_speed) if hasattr(t, 'median_speed') else 0.0
-                    polygon_type = t.event.polyType if hasattr(t, 'event') else None
-                    ########################################################################
-                    # Build Kafka message data
-                    data = {
-                        "cam_id": str(CAM_ID),
-                        "frame_id": int(frameId),
-                        "ts": int(ts_ms),  # Use converted timestamp
-                        "track_id": int(t.track_id),
-                        "coord_box1": float(t.tlwh[0]),
-                        "coord_box2": float(t.tlwh[1]),
-                        "coord_box3": float(t.tlwh[2]),
-                        "coord_box4": float(t.tlwh[3]),
-                        "box_score": float(t.score),
-                        "class_box": int(getattr(t, 'cl', 0)),
-                        "utm": {
-                            "utm_x_m": utm_x_m,
-                            "utm_y_m": utm_y_m,
-                            "speed_kmh": speed_kmh,
-                            "polygon_type": polygon_type
-                        }
-                    }
+        #     print(f"\t -> Running on ONLY_RESULTS mode - only_results={only_results}")
+        #     # FRAME-BASED FLUSH MANAGEMENT
+        #     # Implement intelligent flushing strategy for optimal performance vs latency
+        #     if use_kafka and kafka_producer:
+        #         # Build and send tracking data to Kafka
+        #         for i, t in enumerate(online_targets):
+        #             #####################################################################3
+        #             # Extract UTM values from track object
+        #             utm_x_m = float(t.location[0])
+        #             utm_y_m = float(t.location[1])
+        #             speed_kmh = float(getattr(t, "median_speed", 0.0))
+        #             polygon_type = getattr(getattr(t, "event", None), "polyType", None)
+        #             ########################################################################
+        #             # Build Kafka message data
+        #             data = {
+        #                 "cam_id": str(CAM_ID),
+        #                 "frame_id": int(frameId),
+        #                 "ts": int(ts_ms),  # Use converted timestamp
+        #                 "track_id": int(t.track_id),
+        #                 "coord_box1": float(t.tlwh[0]),
+        #                 "coord_box2": float(t.tlwh[1]),
+        #                 "coord_box3": float(t.tlwh[2]),
+        #                 "coord_box4": float(t.tlwh[3]),
+        #                 "box_score": float(t.score),
+        #                 "class_box": int(getattr(t, 'cl', 0)),
+        #                 "utm": {
+        #                     "utm_x_m": utm_x_m,
+        #                     "utm_y_m": utm_y_m,
+        #                     "speed_kmh": speed_kmh,
+        #                     "polygon_type": polygon_type
+        #                 }
+        #             }
                     
-                    # Send to Kafka
-                    success = send_tracking_data_to_kafka(kafka_producer, kafka_topic, data, CAM_ID)
-                    if not success:
-                        print(f"{CAM_ID} - Failed to send tracking data to Kafka")
-            else:
-                # CSV mode: accumulate results
-                for i, t in enumerate(online_targets):
-                    results.append(
-                        f"{CAM_ID},{frameId},{ts},{t.track_id},{t.tlwh[0]:.2f},{t.tlwh[1]:.2f},{t.tlwh[2]:.2f},{t.tlwh[3]:.2f},{t.score:.2f},{getattr(t, 'cl', 0)}\n"
-                    )
+        #             # Send to Kafka
+        #             success = send_tracking_data_to_kafka(kafka_producer, kafka_topic, data, CAM_ID)
+        #             if not success:
+        #                 print(f"{CAM_ID} - Failed to send tracking data to Kafka")
+        #     else:
+        #         # CSV mode: accumulate results
+        #         for i, t in enumerate(online_targets):
+        #             results.append(
+        #                 f"{CAM_ID},{frameId},{ts},{t.track_id},{t.tlwh[0]:.2f},{t.tlwh[1]:.2f},{t.tlwh[2]:.2f},{t.tlwh[3]:.2f},{t.score:.2f},{getattr(t, 'cl', 0)}\n"
+        #             )
             
-            timers['saving_results'].toc()
-            print(f"{CAM_ID} - Acabando {frame_idx} - {frameId}")
-            continue
+        #     timers['saving_results'].toc()
+        #     print(f"{CAM_ID} - Acabando {frame_idx} - {frameId}")
+        #     continue
         
+
+        #Calcualte speed and semantics if needed
+        #####################################################################################
         timers['processing'].tic()
         futures = []
         for t in online_targets:
@@ -673,10 +676,10 @@ def run_udp(
         for i, t in enumerate(online_targets):
             #####################################################################
             # Extract UTM values from track object (proper source)
-            utm_x_m = float(t.location[0]) if hasattr(t, 'location') and t.location is not None else 0.0
-            utm_y_m = float(t.location[1]) if hasattr(t, 'location') and t.location is not None else 0.0  
-            speed_kmh = float(t.median_speed) if hasattr(t, 'median_speed') else 0.0
-            polygon_type = t.event.polyType if hasattr(t, 'event') else None
+            utm_x_m = float(t.location[0])
+            utm_y_m = float(t.location[1])
+            speed_kmh = float(getattr(t, "median_speed", 0.0))
+            polygon_type = getattr(getattr(t, "event", None), "polyType", None)
             #########################################################################
             if use_kafka and kafka_producer:
                 # Build Kafka message data
