@@ -15,11 +15,13 @@ from src.visualize import plot_tracking
 from trackers.multi_tracker_zoo import create_tracker
 from src.viewTransform import ViewTransformer
 from src import utils, event, processing
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from src.config_loader import load_kafka_config
 import comm_udp as comm_udp
 
+# Use datetime timezone instead of ZoneInfo for better compatibility
+import pytz
 from pycompss.api.api import compss_wait_on
 ###################################################################
 # Import Schema Registry functions from the new module
@@ -75,7 +77,7 @@ signal.signal(signal.SIGINT, signal_handler)
 # ======================================================
 # Capture base timestamp once at process start (Europe/Madrid local time)
 # ======================================================
-BASE_TZ = ZoneInfo("Europe/Madrid")
+BASE_TZ = pytz.timezone("Europe/Madrid")
 BASE_TIME = datetime.now(BASE_TZ)
 BASE_EPOCH_MS = int(BASE_TIME.timestamp() * 1000)
 
