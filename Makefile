@@ -13,7 +13,8 @@
 # limitations under the License.
 COMPSS_VERSION=3.3-arm
 SMARTCITY_VERSION=1.1
-TAG=${SMARTCITY_VERSION}-${COMPSS_VERSION}
+# TAG=${SMARTCITY_VERSION}-${COMPSS_VERSION}
+TAG=latest-LisDevelop
 BUILDER=registry.gitlab.bsc.es/ppc/software/compss/compss_nvidia:${COMPSS_VERSION}
 PREFIX=registry.gitlab.bsc.es/ppc/benchmarks/smart-city/
 PREFIX2=ghcr.io/proyectoascender/smart-city/
@@ -26,7 +27,7 @@ image:
 	docker image tag $(PREFIX)$(IMAGE):$(TAG) $(PREFIX2)$(IMAGE):$(TAG)
 
 push: image
-	docker push $(PREFIX)$(IMAGE):$(TAG)
+# 	docker push $(PREFIX)$(IMAGE):$(TAG)
 	docker push $(PREFIX2)$(IMAGE):$(TAG)
 
 clean:
