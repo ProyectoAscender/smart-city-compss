@@ -5,7 +5,6 @@ FROM $ROOT_CONTAINER AS builder
 WORKDIR /root
 
 
-
 # Install base dependencies
 RUN apt-get update -y && apt-get install -y --no-install-recommends \
     build-essential cmake git pkg-config \
@@ -78,7 +77,7 @@ RUN apt install -y libgdal-dev
 #     cmake .. && \
 #     make -j8
 
-RUN echo houudsfds
+RUN echo qiwbdsfd
 # Copy the local repository files instead of cloning
 
 
