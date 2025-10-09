@@ -16,6 +16,7 @@ class STrack(BaseTrack):
 
         # wait activate
         self._tlwh = np.asarray(tlwh, dtype=np.float)
+        self.det_tlwh = np.asarray(tlwh, dtype=np.float32)
         self.kalman_filter = None
         self.mean, self.covariance = None, None
         self.is_activated = False
@@ -50,6 +51,7 @@ class STrack(BaseTrack):
         self.kalman_filter = kalman_filter
         self.track_id = self.next_id()
         self.mean, self.covariance = self.kalman_filter.initiate(self.tlwh_to_xyah(self._tlwh))
+        self.det_tlwh = self._tlwh.copy()
 
         self.tracklet_len = 0
         self.state = TrackState.Tracked
@@ -62,9 +64,11 @@ class STrack(BaseTrack):
         self.start_frame = frame_id
 
     def re_activate(self, new_track, frame_id, new_id=False):
+        self.det_tlwh = new_track.tlwh.copy()
         self.mean, self.covariance = self.kalman_filter.update(
             self.mean, self.covariance, self.tlwh_to_xyah(new_track.tlwh)
         )
+
         self.tracklet_len = 0
         self.frames_since_update = 0
 
@@ -88,6 +92,8 @@ class STrack(BaseTrack):
         self.frames_since_update = 0
 
         new_tlwh = new_track.tlwh
+        self.det_tlwh = new_track.tlwh.copy()
+        
         self.mean, self.covariance = self.kalman_filter.update(
             self.mean, self.covariance, self.tlwh_to_xyah(new_tlwh))
         self.state = TrackState.Tracked

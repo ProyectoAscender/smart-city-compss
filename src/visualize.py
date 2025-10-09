@@ -107,7 +107,7 @@ def plot_tracking(image, online_targets, frame_id=0, fps=0., ids2=None, get_sema
             continue
 
         # --- Caja y color
-        x1, y1, x2, y2 = _bbox_int(t.tlwh)
+        x1, y1, x2, y2 = _bbox_int(t.det_tlwh)
         intbox = (x1, y1, x2, y2)
         color = get_color(abs(int(t.track_id)))
         line_thickness = 3
@@ -128,20 +128,36 @@ def plot_tracking(image, online_targets, frame_id=0, fps=0., ids2=None, get_sema
         if getattr(t, 'score', None) is not None:
             _put_text_right(im, f'{t.score:.2f}', (x2 - 5, y1 + 5), scale=0.55)
 
-        # median_speed dentro (esquina inf-izq, más pequeño)
+        # median_speed dentro (esquina inf-izq) - hacer más visible
         if getattr(t, 'median_speed', None) is not None:
-            _put_text(im, f'{t.median_speed:.1f}', (x1 + 4, y2 - 4),
-                      scale=0.5, color=(0,255,255), thick=1)
+            speed_text = f'{t.median_speed:.1f}'
+            # calcular tamaño del texto
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            scale = 0.8
+            thick = 2
+            (tw, th), _ = cv2.getTextSize(speed_text, font, scale, thick)
+            pad_x, pad_y = 6, 4
+            # rectángulo de fondo semi-opaico (relleno) para contraste
+            bx1 = x1 + 2
+            by1 = y2 - th - pad_y
+            bx2 = bx1 + tw + pad_x
+            by2 = y2 + 2
+            # color de fondo oscuro
+            cv2.rectangle(im, (bx1, by1), (bx2, by2), (0, 0, 0), -1)
+            # texto con contorno: primero texto grueso oscuro para borde
+            cv2.putText(im, speed_text, (bx1 + 3, by2 - 4), font, scale, (0, 0, 0), thickness=thick+2, lineType=cv2.LINE_AA)
+            # luego texto principal claro
+            cv2.putText(im, speed_text, (bx1 + 3, by2 - 4), font, scale, (255, 255, 255), thickness=thick, lineType=cv2.LINE_AA)
 
         # ID abajo-dcha dentro (más pequeño)
         _put_text_right(im, f'{str(t.track_id)}', (x2 - 5, y2 - 20),
                         scale=0.5, color=(0,255,0), thick=1)
 
-        # vector de velocidades fuera, pegado a esquina inf-izq
-        if getattr(t, 'speeds', None) is not None and len(t.speeds) > 0:
-            speeds_txt = ", ".join(f"{v:.1f}" for v in np.asarray(t.speeds).ravel().tolist())
-            _put_text(im, speeds_txt, (x1 + 5, y2 + 15),
-                      scale=0.4, color=(200,200,200), thick=1)
+        # # vector de velocidades fuera, pegado a esquina inf-izq
+        # if getattr(t, 'speeds', None) is not None and len(t.speeds) > 0:
+        #     speeds_txt = ", ".join(f"{v:.1f}" for v in np.asarray(t.speeds).ravel().tolist())
+        #     _put_text(im, speeds_txt, (x1 + 5, y2 + 15),
+        #               scale=0.4, color=(200,200,200), thick=1)
 
         # === Trayectoria en píxeles ===
         curr_px = _bbox_center(intbox)
@@ -156,16 +172,16 @@ def plot_tracking(image, online_targets, frame_id=0, fps=0., ids2=None, get_sema
 
         trail_last_px[t.track_id] = curr_px
 
-        # Dibujar segmentos con distancias desde t.distances
-        if t.track_id in trail_segments:
-            segs = trail_segments[t.track_id]
-            dists = getattr(t, 'distances', [])
-            for idx, (p1, p2) in enumerate(segs):
-                cv2.line(im, p1, p2, color, 2)
-                if idx < len(dists) and dists[idx] is not None:
-                    mid = ((p1[0] + p2[0]) // 2, (p1[1] + p2[1]) // 2)
-                    _put_text(im, f'{dists[idx]:.1f}m', (mid[0] + 4, mid[1] - 4),
-                              scale=0.45, color=(255,255,255), thick=1)
+        # # Dibujar segmentos con distancias desde t.distances
+        # if t.track_id in trail_segments:
+        #     segs = trail_segments[t.track_id]
+        #     dists = getattr(t, 'distances', [])
+        #     for idx, (p1, p2) in enumerate(segs):
+        #         cv2.line(im, p1, p2, color, 2)
+        #         if idx < len(dists) and dists[idx] is not None:
+        #             mid = ((p1[0] + p2[0]) // 2, (p1[1] + p2[1]) // 2)
+        #             _put_text(im, f'{dists[idx]:.1f}m', (mid[0] + 4, mid[1] - 4),
+        #                       scale=0.45, color=(255,255,255), thick=1)
 
     return im
 

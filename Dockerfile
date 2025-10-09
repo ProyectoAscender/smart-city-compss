@@ -126,3 +126,4 @@ LABEL org.opencontainers.image.source https://github.com/proyectoAscender/smart-
 
 # Establishing entrypoint for downloading the stubs and making the image ready at runtime
 # ENTRYPOINT ["./entrypoint.sh"]
+LABEL org.opencontainers.image.source https://github.com/proyectoAscender/smart-city-compss
