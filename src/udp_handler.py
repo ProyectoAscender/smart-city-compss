@@ -564,6 +564,7 @@ def run_udp(
         ##########################################################################################
         #ADD option to only send results to Kafka or CSV, without any other processing
         #########################################################################################
+        print(f"[UDP DEBUG] Checking only_results condition - only_results: {only_results} (type: {type(only_results)})")
         if (only_results): 
             timers['saving_results'].tic()
             
@@ -593,6 +594,7 @@ def run_udp(
 
         #Calcualte speed and semantics if needed
         #####################################################################################
+        print(f"[UDP DEBUG] Entering normal processing mode (NOT only_results)")
         timers['processing'].tic()
         futures = []
         for t in online_targets:
