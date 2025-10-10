@@ -184,6 +184,12 @@ def run_udp(
     kafka_auto_flush = kafka_config.get('kafka_auto_flush', True)
     
     print("\n\n\n[udp_handler] Starting UDP-based tracking...")
+    print(f"[udp_handler] Configuration - use_kafka: {use_kafka}, only_results: {only_results}")
+    print(f"[udp_handler] Kafka config - servers: {kafka_bootstrap_servers}, topic: {kafka_topic}")
+    if kafka_username:
+        print(f"[udp_handler] Kafka authentication enabled - username: {kafka_username}, protocol: {kafka_security_protocol}")
+    else:
+        print(f"[udp_handler] Kafka authentication disabled - protocol: {kafka_security_protocol}")
 ###############################################################################################
 #############################################################################################
     # Maybe this should be inside the for loop? one tracker per edge device????
@@ -558,8 +564,8 @@ def run_udp(
         ##########################################################################################
         #ADD option to only send results to Kafka or CSV, without any other processing
         #########################################################################################
-        # if (only_results): 
-        #     timers['saving_results'].tic()
+        if (only_results): 
+            timers['saving_results'].tic()
             
         #     print(f"\t -> Running on ONLY_RESULTS mode - only_results={only_results}")
         #     # FRAME-BASED FLUSH MANAGEMENT
@@ -605,9 +611,9 @@ def run_udp(
         #                 f"{CAM_ID},{frameId},{ts},{t.track_id},{t.tlwh[0]:.2f},{t.tlwh[1]:.2f},{t.tlwh[2]:.2f},{t.tlwh[3]:.2f},{t.score:.2f},{getattr(t, 'cl', 0)}\n"
         #             )
             
-        #     timers['saving_results'].toc()
-        #     print(f"{CAM_ID} - Acabando {frame_idx} - {frameId}")
-        #     continue
+            timers['saving_results'].toc()
+            print(f"{CAM_ID} - Acabando {frame_idx} - {frameId}")
+            continue
         
 
         #Calcualte speed and semantics if needed
@@ -678,12 +684,20 @@ def run_udp(
         for i, t in enumerate(online_targets):
             #####################################################################
             # Extract UTM values from track object (proper source)
+            print(f"{CAM_ID} - Debug: Processing target {i}: {t}")
+            print(f"{CAM_ID} - Debug: t.location: {getattr(t, 'location', 'NO LOCATION ATTR')}")
+            print(f"{CAM_ID} - Debug: t.median_speed: {getattr(t, 'median_speed', 'NO SPEED ATTR')}")
+            print(f"{CAM_ID} - Debug: t.event: {getattr(t, 'event', 'NO EVENT ATTR')}")
+            
             utm_x_m = float(t.location[0])
             utm_y_m = float(t.location[1])
             speed_kmh = float(getattr(t, "median_speed", 0.0))
             polygon_type = getattr(getattr(t, "event", None), "polyType", None)
+            
+            print(f"{CAM_ID} - Debug: Extracted - utm_x_m: {utm_x_m}, utm_y_m: {utm_y_m}, speed_kmh: {speed_kmh}, polygon_type: {polygon_type}")
             #########################################################################
-            if use_kafka and kafka_producer:
+            # Only send to Kafka if speed is not 0
+            if use_kafka and kafka_producer and speed_kmh != 0.0:
                 # Build Kafka message data
                 data = {
                     "cam_id": str(CAM_ID),
@@ -708,6 +722,10 @@ def run_udp(
                 success = send_tracking_data_to_kafka(kafka_producer, kafka_topic, data, CAM_ID)
                 if not success:
                     print(f"{CAM_ID} - Failed to send tracking data to Kafka")
+                else:
+                    print(f"{CAM_ID} - Successfully sent tracking data to Kafka (speed: {speed_kmh})")
+            elif use_kafka and kafka_producer and speed_kmh == 0.0:
+                print(f"{CAM_ID} - Skipping Kafka send - speed is 0 (track_id: {t.track_id})")
             else:
                 # CSV mode
                 results.append(

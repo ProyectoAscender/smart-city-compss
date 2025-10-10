@@ -77,7 +77,7 @@ RUN apt install -y libgdal-dev
 #     cmake .. && \
 #     make -j8
 
-RUN echo qiwbdsfd
+RUN echo fasdgtfaw
 # Copy the local repository files instead of cloning
 
 
