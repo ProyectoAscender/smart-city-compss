@@ -567,49 +567,24 @@ def run_udp(
         if (only_results): 
             timers['saving_results'].tic()
             
-        #     print(f"\t -> Running on ONLY_RESULTS mode - only_results={only_results}")
-        #     # FRAME-BASED FLUSH MANAGEMENT
-        #     # Implement intelligent flushing strategy for optimal performance vs latency
-        #     if use_kafka and kafka_producer:
-        #         # Build and send tracking data to Kafka
-        #         for i, t in enumerate(online_targets):
-        #             #####################################################################3
-        #             # Extract UTM values from track object
-        #             utm_x_m = float(t.location[0])
-        #             utm_y_m = float(t.location[1])
-        #             speed_kmh = float(getattr(t, "median_speed", 0.0))
-        #             polygon_type = getattr(getattr(t, "event", None), "polyType", None)
-        #             ########################################################################
-        #             # Build Kafka message data
-        #             data = {
-        #                 "cam_id": str(CAM_ID),
-        #                 "frame_id": int(frameId),
-        #                 "ts": int(ts_ms),  # Use converted timestamp
-        #                 "track_id": int(t.track_id),
-        #                 "coord_box1": float(t.tlwh[0]),
-        #                 "coord_box2": float(t.tlwh[1]),
-        #                 "coord_box3": float(t.tlwh[2]),
-        #                 "coord_box4": float(t.tlwh[3]),
-        #                 "box_score": float(t.score),
-        #                 "class_box": int(getattr(t, 'cl', 0)),
-        #                 "utm": {
-        #                     "utm_x_m": utm_x_m,
-        #                     "utm_y_m": utm_y_m,
-        #                     "speed_kmh": speed_kmh,
-        #                     "polygon_type": polygon_type
-        #                 }
-        #             }
-                    
-        #             # Send to Kafka
-        #             success = send_tracking_data_to_kafka(kafka_producer, kafka_topic, data, CAM_ID)
-        #             if not success:
-        #                 print(f"{CAM_ID} - Failed to send tracking data to Kafka")
-        #     else:
-        #         # CSV mode: accumulate results
-        #         for i, t in enumerate(online_targets):
-        #             results.append(
-        #                 f"{CAM_ID},{frameId},{ts},{t.track_id},{t.tlwh[0]:.2f},{t.tlwh[1]:.2f},{t.tlwh[2]:.2f},{t.tlwh[3]:.2f},{t.score:.2f},{getattr(t, 'cl', 0)}\n"
-        #             )
+            print(f"\t -> Running on ONLY_RESULTS mode - only_results={only_results}")
+            # FRAME-BASED FLUSH MANAGEMENT
+            # Implement intelligent flushing strategy for optimal performance vs latency
+            if use_kafka and kafka_producer:
+                # In only_results mode, we don't have valid UTM data (would be 0.0)
+                # So we skip Kafka and only use CSV mode for basic tracking data
+                print(f"{CAM_ID} - Skipping Kafka in only_results mode - no valid UTM data available")
+                # Convert to CSV mode for only_results
+                for i, t in enumerate(online_targets):
+                    results.append(
+                        f"{CAM_ID},{frameId},{ts},{t.track_id},{t.tlwh[0]:.2f},{t.tlwh[1]:.2f},{t.tlwh[2]:.2f},{t.tlwh[3]:.2f},{t.score:.2f},{getattr(t, 'cl', 0)}\n"
+                    )
+            else:
+                # CSV mode: accumulate results
+                for i, t in enumerate(online_targets):
+                    results.append(
+                        f"{CAM_ID},{frameId},{ts},{t.track_id},{t.tlwh[0]:.2f},{t.tlwh[1]:.2f},{t.tlwh[2]:.2f},{t.tlwh[3]:.2f},{t.score:.2f},{getattr(t, 'cl', 0)}\n"
+                    )
             
             timers['saving_results'].toc()
             print(f"{CAM_ID} - Acabando {frame_idx} - {frameId}")
@@ -696,8 +671,9 @@ def run_udp(
             
             print(f"{CAM_ID} - Debug: Extracted - utm_x_m: {utm_x_m}, utm_y_m: {utm_y_m}, speed_kmh: {speed_kmh}, polygon_type: {polygon_type}")
             #########################################################################
-            # Only send to Kafka if speed is not 0
-            if use_kafka and kafka_producer and speed_kmh != 0.0:
+            # Only send to Kafka if UTM values are valid (not 0 and not None)
+            utm_valid = utm_x_m != 0.0 and utm_y_m != 0.0 and utm_x_m is not None and utm_y_m is not None
+            if use_kafka and kafka_producer and utm_valid:
                 # Build Kafka message data
                 data = {
                     "cam_id": str(CAM_ID),
@@ -723,9 +699,9 @@ def run_udp(
                 if not success:
                     print(f"{CAM_ID} - Failed to send tracking data to Kafka")
                 else:
-                    print(f"{CAM_ID} - Successfully sent tracking data to Kafka (speed: {speed_kmh})")
-            elif use_kafka and kafka_producer and speed_kmh == 0.0:
-                print(f"{CAM_ID} - Skipping Kafka send - speed is 0 (track_id: {t.track_id})")
+                    print(f"{CAM_ID} - Successfully sent tracking data to Kafka (UTM: {utm_x_m}, {utm_y_m})")
+            elif use_kafka and kafka_producer and not utm_valid:
+                print(f"{CAM_ID} - Skipping Kafka send - invalid UTM values (utm_x_m: {utm_x_m}, utm_y_m: {utm_y_m}, track_id: {t.track_id})")
             else:
                 # CSV mode
                 results.append(
