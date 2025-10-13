@@ -640,10 +640,11 @@ def run_udp(
                         f"{online_targets[i].median_speed:.2f},{online_targets[i].event.polyType}"
 
                     )
-
+                
                 timers['speed'].toc(value=t_speed_task)
 
                 timers['semantics'].toc(value=t_semantics_task) 
+                #Poner kafka o modo csv 
 
 
 
@@ -656,12 +657,27 @@ def run_udp(
         timers['processing'].toc()
         #####################################################################################
         # BUILD AND SEND TRACKING DATA TO KAFKA
+        # 
+        # IMPORTANT: Kafka processing is placed OUTSIDE the COMPSs futures loop for the following reasons:
+        # 
+        # 1. AVOID DUPLICATE SENDS: Previously, Kafka processing was inside the COMPSs loop,
+        #    causing the same tracking data to be sent multiple times to Kafka (once per future).
+        # 
+        # 2. CORRECT TIMING: We need to wait until ALL COMPSs futures complete and populate
+        #    the online_targets with location, speed, and event data before sending to Kafka.
+        # 
+        # 3. VARIABLE CONFLICTS: The inner loop used the same variable 'i' as the outer loop,
+        #    causing confusion and potential bugs. Now using 'j' for clear separation.
+        # 
+        # 4. CLEAN ARCHITECTURE: Separates COMPSs processing (compute-intensive) from
+        #    Kafka processing (I/O-intensive) for better code maintainability.
+        # 
         # Process each detected object and send to Kafka or store for CSV
         #########################################################################################
-        for i, t in enumerate(online_targets):
+        for j, t in enumerate(online_targets):
             #####################################################################
             # Extract UTM values from track object (proper source)
-            print(f"{CAM_ID} - Debug: Processing target {i}: {t}")
+            print(f"{CAM_ID} - Debug: Processing target {j}: {t}")
             print(f"{CAM_ID} - Debug: t.location: {getattr(t, 'location', 'NO LOCATION ATTR')}")
             print(f"{CAM_ID} - Debug: t.median_speed: {getattr(t, 'median_speed', 'NO SPEED ATTR')}")
             print(f"{CAM_ID} - Debug: t.event: {getattr(t, 'event', 'NO EVENT ATTR')}")
@@ -710,6 +726,7 @@ def run_udp(
                     f"{CAM_ID},{frameId},{ts},{t.track_id},{t.tlwh[0]:.2f},{t.tlwh[1]:.2f},{t.tlwh[2]:.2f},{t.tlwh[3]:.2f},{t.score:.2f},{getattr(t, 'cl', 0)}\n"
                 )
 
+        
         # AUTOMATIC FLUSH FOR LOW-LATENCY DELIVERY
         # Optional immediate flush after sending data for ultra-low latency scenarios
         # Periodic flush (frame- or time-based, or hour change)
@@ -865,7 +882,7 @@ def run_udp(
         print(f"{CAM_ID} - Kafka producer flushed and closed")
     elif save_results and all_results != []:
         # CSV MODE: Save accumulated results to file
-        utils.save_results(results, exp_dir, CAM_ID)
+        utils.save_results(all_results, exp_dir, CAM_ID)
         
     # Save alert information if alerts are enabled
     if alerts:
