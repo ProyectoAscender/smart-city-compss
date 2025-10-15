@@ -17,7 +17,7 @@ from src.viewTransform import ViewTransformer
 from src import utils, event, processing
 from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from src.config_loader import load_kafka_config
+from kafka.config_loader import load_kafka_config
 import comm_udp as comm_udp
 
 # Use datetime timezone instead of ZoneInfo for better compatibility
@@ -26,7 +26,7 @@ from pycompss.api.api import compss_wait_on
 ###################################################################
 # Import Schema Registry functions from the new module
 ###################################################################
-from src.kafka_schema_registry import (
+from kafka.kafka_schema_registry import (
     create_schema_registry_client,
     create_kafka_producer,
     send_tracking_data_to_kafka
@@ -611,7 +611,7 @@ def run_udp(
 
                 # print('XX compss_wait_on...')
 
-                online_targets[i] = compss_wait_on(future[0])
+                t = online_targets[i] = compss_wait_on(future[0])
 
                 alertInfo_task = compss_wait_on(future[1])
 
@@ -649,7 +649,7 @@ def run_udp(
                 # Send Kafka message for THIS specific target immediately
                 # BUILD AND SEND TRACKING DATA TO KAFKA
                 #####################################################################################
-                t = online_targets[i]
+                # t is the tracklet of this loop iteration
                 # Extract UTM values from track object (proper source)
                 print(f"{CAM_ID} - Debug: Processing target {i}: {t}")
                 print(f"{CAM_ID} - Debug: t.location: {getattr(t, 'location', 'NO LOCATION ATTR')}")

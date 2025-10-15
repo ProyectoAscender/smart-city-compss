@@ -23,7 +23,7 @@ def get_kafka_config_from_env():
     """
     config = {
         # Basic Kafka connection settings
-        "use_kafka": os.getenv("USE_KAFKA", "true").lower() == "true",
+        "use_kafka": os.getenv("USE_KAFKA", "false").lower(),
         "kafka_bootstrap_servers": os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092"),
         "kafka_topic": os.getenv("KAFKA_TOPIC", "smartcity-tracking"),
 
@@ -48,11 +48,11 @@ def get_kafka_config_from_env():
 
         # Avro schema settings
         "avro_schema_subject": os.getenv("AVRO_SCHEMA_SUBJECT", "smartcity-tracking-value"),
-        "use_schema_registry": os.getenv("USE_SCHEMA_REGISTRY", "false").lower() == "true",
+        "use_schema_registry": os.getenv("USE_SCHEMA_REGISTRY", "false").lower(),
         
         # Frame-based flush configuration for performance tuning
         "kafka_flush_interval": int(os.getenv("KAFKA_FLUSH_INTERVAL", "100")),  # Default: flush every 100 frames
-        "kafka_auto_flush": os.getenv("KAFKA_AUTO_FLUSH", "true").lower() == "true",
+        "kafka_auto_flush": os.getenv("KAFKA_AUTO_FLUSH", "true").lower(),
     }
 
     # Auto-detection of security protocols based on credentials
