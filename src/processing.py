@@ -83,7 +83,7 @@ def semantics_task(t, polys, ts , frameId, alerts):
 
 #@task(returns=5)
 def process_tracklets(t, view_transformer, timers, get_semantic, get_speed , alerts , polys, ts, frameId):
-    
+    print(f'Processing tracklet {t.track_id} at frame {frameId}')
     # get speed of tracklets
     t_i = time.time()
     if (get_speed):
@@ -91,7 +91,7 @@ def process_tracklets(t, view_transformer, timers, get_semantic, get_speed , ale
     else:
         online_speeds = "# Speed disabled"
     t_speed = time.time() - t_i
-
+    print(f'Processed speed for tracklet {t.track_id} at frame {frameId} in {t_speed} seconds')
     # Check semantics and send alerts
     t_i = time.time()
     if (get_semantic): 
@@ -99,7 +99,7 @@ def process_tracklets(t, view_transformer, timers, get_semantic, get_speed , ale
     else:
         alertInfo = "Semantics disabled."
     t_semantics = time.time() - t_i
-
+    print(f'Processed semantics for tracklet {t.track_id} at frame {frameId} in {t_semantics} seconds')
     return t, alertInfo, online_speeds, t_speed, t_semantics
     
     

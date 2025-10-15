@@ -1,7 +1,7 @@
 #!/bin/bash
 # docker run --runtime nvidia -it --name smartcity01 --net=host -v ~/smart-city-compss:/root/smartcity-compss -v /mnt/b2drop/smartCity:/root/smartcity-compss/data  registry.gitlab.bsc.es/ppc/benchmarks/smart-city/smart-city-compss:3.0-heuristics-arm---1.0 /bin/bash
-COMPSS_VERSION=3.3-arm
-SMARTCITY_VERSION=1.1
+COMPSS_VERSION=3.3
+SMARTCITY_VERSION=1.2
 # TAG=${SMARTCITY_VERSION}-${COMPSS_VERSION}
 TAG=latest-LisDevelop
 # IMAGE=registry.gitlab.bsc.es/ppc/software/compss/compss_nvidia:${COMPSS_VERSION}
