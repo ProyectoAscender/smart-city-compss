@@ -230,6 +230,7 @@ def run_udp(
             kafka_ssl_keyfile=kafka_ssl_keyfile,
             schema_registry_client=schema_registry_client,
             avro_schema_subject=avro_schema_subject,
+            use_schema_registry=use_schema_registry,
         )
 
         if kafka_producer:

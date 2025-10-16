@@ -14,11 +14,20 @@ try:
     from confluent_kafka.schema_registry import SchemaRegistryClient
     from confluent_kafka.schema_registry.avro import AvroSerializer
     from confluent_kafka.serialization import SerializationContext, MessageField
-    SCHEMA_REGISTRY_AVAILABLE = True
+    _CONFLUENT_KAFKA_INSTALLED = True
 except ImportError:
     # Graceful fallback if confluent-kafka is not installed
-    SCHEMA_REGISTRY_AVAILABLE = False
+    _CONFLUENT_KAFKA_INSTALLED = False
     print("[Warning] confluent-kafka not available, using basic avro serialization")
+
+# Check if Schema Registry should be available based on environment configuration
+# This can be overridden via Helm values.yaml: SCHEMA_REGISTRY_AVAILABLE=true
+SCHEMA_REGISTRY_AVAILABLE = _CONFLUENT_KAFKA_INSTALLED and os.getenv("SCHEMA_REGISTRY_AVAILABLE", "false").lower() == "true"
+
+if SCHEMA_REGISTRY_AVAILABLE:
+    print("[Schema Registry] Confluent Kafka Schema Registry support enabled")
+else:
+    print("[Schema Registry] Using basic Avro serialization (Schema Registry disabled or unavailable)")
 
 # Avro schema definition for tracking data
 # This schema defines the structure for real-time object tracking messages
@@ -191,7 +200,7 @@ def avro_serialize(data):
 def create_kafka_producer(topic_name, kafka_bootstrap_servers="localhost:9092", kafka_username=None, kafka_password=None, 
                           kafka_security_protocol="PLAINTEXT", kafka_sasl_mechanism="SCRAM-SHA-512", 
                           kafka_ssl_cafile=None, kafka_ssl_certfile=None, kafka_ssl_keyfile=None,
-                          schema_registry_client=None, avro_schema_subject=None):
+                          schema_registry_client=None, avro_schema_subject=None, use_schema_registry=False):
     """
     Create and configure a Kafka producer with Avro serialization support.
     
@@ -213,6 +222,7 @@ def create_kafka_producer(topic_name, kafka_bootstrap_servers="localhost:9092", 
         kafka_ssl_keyfile (str, optional): Path to client private key file
         schema_registry_client: Schema Registry client for enterprise deployments
         avro_schema_subject (str, optional): Schema subject name in Schema Registry
+        use_schema_registry (bool): Whether to use Schema Registry (True) or basic Avro (False)
     
     Returns:
         KafkaProducer or None: Configured producer instance or None on failure
@@ -223,7 +233,9 @@ def create_kafka_producer(topic_name, kafka_bootstrap_servers="localhost:9092", 
     if not topic_name:
         raise ValueError("topic_name is required and cannot be None or empty")
     
-    use_schema_registry = schema_registry_client is not None
+    # Configuration logic:
+    # - If use_schema_registry=False: Use basic Avro serialization with TRACKING_AVRO_SCHEMA
+    # - If use_schema_registry=True: Use Schema Registry with avro_schema_subject (if available)
 
     # Base producer configuration optimized for real-time streaming
     producer_config = {
@@ -236,22 +248,25 @@ def create_kafka_producer(topic_name, kafka_bootstrap_servers="localhost:9092", 
         "buffer_memory": 33554432,  # Producer buffer memory
     }
 
-    # Configure serialization strategy (Schema Registry vs Basic Avro)
-    if use_schema_registry and SCHEMA_REGISTRY_AVAILABLE:
+    # Configure serialization strategy based on use_schema_registry flag
+    if use_schema_registry and SCHEMA_REGISTRY_AVAILABLE and schema_registry_client:
         # Enterprise mode: Use Schema Registry for centralized schema management
         _, schema_str = get_or_register_schema(schema_registry_client, avro_schema_subject, TRACKING_AVRO_SCHEMA)
         if schema_str:
             avro_serializer = AvroSerializer(schema_registry_client, schema_str)
             producer_config["value_serializer"] = lambda x: schema_registry_serializer(x, topic_name, avro_serializer)
-            print("[Kafka] Using Confluent Avro wire format via Schema Registry")
+            print(f"[Kafka] Using Schema Registry with subject: {avro_schema_subject}")
         else:
             # Schema Registry failed, fallback to basic Avro
             producer_config["value_serializer"] = lambda x: avro_serialize(x)
-            print("[Kafka] SR lookup failed; using basic Avro")
+            print("[Kafka] Schema Registry lookup failed; using basic Avro with TRACKING_AVRO_SCHEMA")
     else:
-        # Basic mode: Use standard Avro serialization
+        # Basic mode: Use standard Avro serialization with TRACKING_AVRO_SCHEMA
         producer_config["value_serializer"] = lambda x: avro_serialize(x)
-        print("[Kafka] Using basic Avro serialization")
+        if use_schema_registry:
+            print("[Kafka] Schema Registry requested but not available; using basic Avro with TRACKING_AVRO_SCHEMA")
+        else:
+            print("[Kafka] Using basic Avro serialization with TRACKING_AVRO_SCHEMA")
 
     # Configure security settings based on protocol
     if kafka_security_protocol != "PLAINTEXT":
