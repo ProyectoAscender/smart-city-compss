@@ -472,8 +472,13 @@ def run_udp(
         
         ###############################################################################
         # Convert to epoch milliseconds (UTC reference)
-        # ts_ms = to_epoch_millis(ts)
-        ts_ms=ts
+        # Ensure timestamp is properly converted to long integer for Avro schema compatibility
+        try:
+            ts_ms = int(float(ts)) if ts is not None else int(time.time() * 1000)
+        except (ValueError, TypeError):
+            # Fallback to current timestamp if conversion fails
+            ts_ms = int(time.time() * 1000)
+            print(f"{CAM_ID} - Warning: Invalid timestamp '{ts}', using current time: {ts_ms}")
 
         #############################################################################
 
