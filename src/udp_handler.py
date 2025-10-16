@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+��# -*- coding: utf-8 -*-
 
 import numpy as np
 import shutil
@@ -102,7 +102,7 @@ def to_epoch_millis(ts_val):
                 dt = dt.replace(tzinfo=BASE_TZ)
 
             # Convert to UTC epoch ms
-            return int(dt.astimezone(timezone.utc).timestamp() * 1000)
+            return int(dt.astimezone(timezone.utc).timestamp(* 1000)
 
         # --- Case 2: Numeric value ---
         if isinstance(ts_val, (int, float)):
@@ -116,7 +116,6 @@ def to_epoch_millis(ts_val):
             else:
                 # Relative seconds → add to base timestamp
                 return BASE_EPOCH_MS + int(ts_val * 1000)
-
     except Exception as e:
         print(f"[to_epoch_millis] Error parsing '{ts_val}': {e}")
 
@@ -275,6 +274,9 @@ def run_udp(
     try:
         info = comm_udp.handshake_and_get_info(udpSock, host, port, max_retries, retry_delay)
         print(f"[ {edge_ip}] Camera info: {info}")
+    except Exception as e:
+        print(f"[ {edge_ip}] Error during handshake: {e}")
+        return
     except socket.timeout:
         print(f"[ {edge_ip}] Handshake timeout!")
         return
@@ -288,11 +290,11 @@ def run_udp(
     CAM_WIDTH  = int(info["cam_width"])
     DATA_PATH = info["data_path"].replace("'", "")
     DATA_PATH = os.path.join(*(DATA_PATH.split(os.path.sep)[3:-1]))
-    # videoPath = os.path.join( 'data', DATA_PATH, "videos/20230721_092248_cam01h264.mp4")
+    # videoPath = os.path.join'data', DATA_PATH, "videos/20230721_092248_cam01h264.mp4")
     CITY = DATA_PATH.split(os.path.sep)[0]
     AREA = DATA_PATH.split(os.path.sep)[1]
-    DATA_PATH = os.path.join( 'data', DATA_PATH)
-    ROI_PATH = DATA_PATH + '/roi/' + AREA.lower() + '_' + CAM_ID + '.json'
+    DATA_PATH = os.path.join'data', DATA_PATH)
+    ROI_PATH = DATA_PATH + '/roi/' + AREA.lower(+ '_' + CAM_ID + '.json'
     PMAT_PATH = utils.find_files_by_strings(os.path.join(DATA_PATH, 'pmat'), CAM_ID, "ACTIVE")[0]
     if (not os.path.exists(PMAT_DEST_PATH)) or (os.stat(PMAT_PATH).st_mtime - os.stat(PMAT_DEST_PATH).st_mtime > 1) :
         # Load pmat. First we add a local copy to avoid b2drop delay
@@ -323,7 +325,7 @@ def run_udp(
             exit(1)
         print(f'{CAM_ID} - Video receiving from camera-edge prepared')
         vid_fps = cap.get(cv2.CAP_PROP_FPS)
-        FPS = vid_fps if int(vid_fps) > 0 else DEFAULT_FPS
+        FPS = vid_fps if int(vid_fps> 0 else DEFAULT_FPS
     current_hour = int(datetime.now().strftime("%M"))
     # Prepare video save output
     if save_plot:
@@ -387,7 +389,7 @@ def run_udp(
     frameId = 0
     ts = 0
     # Time inicialization
-    timers = {name: Timer() for name in ['track', 'frame_reception', 'udp_decoding','udp_wait_reception', 'processing', 'speed', 'video', 'semantics', 'total', 'saving_results']}
+    timers = {name: Timer(for name in ['track', 'frame_reception', 'udp_decoding','udp_wait_reception', 'processing', 'speed', 'video', 'semantics', 'total', 'saving_results']}
             
     # Variable inicialization:
     skiped_frames = 0
@@ -429,7 +431,7 @@ def run_udp(
                 break   
             try: 
                 # Receiving boxes. Como address no nos importa, no lo guardamos como _
-                hex_data, _ = udpSock.recvfrom(16000)  # bigger buffer if needed
+                hex_data, _ = udpSock.recvfrom(16000 # bigger buffer if needed
             except BlockingIOError as b:
                 if(hex_data==""):   # hex_data is set to "" at the end of the processing loop
                     # print(f"[main.py - {CAM_ID}] No bounding box data, continuing...")
@@ -465,7 +467,7 @@ def run_udp(
             print(f"{CAM_ID} - Udp hex data couldn't be decoded, so it has zero information")
             # We simulate iteration info with no aprox. expected info
             frameId = frameId + 1
-            ts = ts + (1/(FPS if "FPS" in vars() else DEFAULT_FPS))
+            ts = ts + (1/(FPS if "FPS" in vars(else DEFAULT_FPS))
 
         # ... after setting frameId and ts ...
         
@@ -506,7 +508,7 @@ def run_udp(
 
         ###                 Possibly issues caused by:
         # # Frames con detecciones
-        # if isinstance(det, np.ndarray) and det.size > 0:
+        # if isinstance(det, np.ndarrayand det.size > 0:
         #     # Update tracker
         #     online_targets = tracker_list[0].update(det, img_info, test_size)
 
@@ -554,7 +556,7 @@ def run_udp(
 
             frame_results.append(line)
 
-            results.append(line)  # results global, si lo quieres
+            results.append(line # results global, si lo quieres
 
             # online_flags(t.event.alertFlag)
 
@@ -674,8 +676,8 @@ def run_udp(
         # 3. VARIABLE CONFLICTS: The inner loop used the same variable 'i' as the outer loop,
         #    causing confusion and potential bugs. Now using 'j' for clear separation.
         # 
-        # 4. CLEAN ARCHITECTURE: Separates COMPSs processing (compute-intensive) from
-        #    Kafka processing (I/O-intensive) for better code maintainability.
+        # 4. CLEAN ARCHITECTURE: Separates COMPSs processing (compute-intensivefrom
+        #    Kafka processing (I/O-intensivefor better code maintainability.
         # 
         # Process each detected object and send to Kafka or store for CSV
         #########################################################################################
@@ -740,7 +742,7 @@ def run_udp(
             if kafka_flush_interval > 0 and frame_idx % kafka_flush_interval == 0:
                 kafka_producer.flush()
                 print(f"{CAM_ID} - Kafka producer flushed (frame {frame_idx})")
-            elif kafka_auto_flush and (time.time() - last_flush_time > FLUSH_EVERY_SECS):
+            elif kafka_auto_flush and (time.time(- last_flush_time > FLUSH_EVERY_SECS):
                 kafka_producer.flush()
                 last_flush_time = time.time()
                 print(f"{CAM_ID} - Kafka producer auto-flushed")
@@ -782,11 +784,11 @@ def run_udp(
                 vid_writer2.write(online_im)
 
         # View frame with plot
-        if view_plot and os.environ.get("DISPLAY") is not None:
+        if view_plot and os.environ.get("DISPLAY"is not None:
             cv2.imshow("Tracking", online_im)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
-        elif view_plot and os.environ.get("DISPLAY") is None:
+        elif view_plot and os.environ.get("DISPLAY"is None:
             # Send video (rtp)
 
             assert online_im.dtype == np.uint8 and online_im.shape[2] == 3
@@ -806,7 +808,7 @@ def run_udp(
             # break
             for name, timer in timers.items():
 
-                print(f'{CAM_ID} - Avg. {name.capitalize()} Time: {timer.average_time}')                
+                print(f'{CAM_ID} - Avg. {name.capitalize()} Time: {timer.average_time}'               
 
                 timer.clear()
 
@@ -858,7 +860,7 @@ def run_udp(
                     print(f"{CAM_ID} - New video file started: {video_path}, vid_writer")
             current_hour = new_hour
             timers['saving_results'].toc()
-            timers['total'].toc() 
+            timers['total'].toc(
 
 
             # if not use_kafka:
@@ -882,8 +884,8 @@ def run_udp(
 #####################################################################################################
     if use_kafka and kafka_producer:
         # KAFKA MODE: Flush remaining messages and close producer
-        kafka_producer.flush()  # Ensure all pending messages are sent
-        kafka_producer.close()  # Clean shutdown of producer
+        kafka_producer.flush( # Ensure all pending messages are sent
+        kafka_producer.close( # Clean shutdown of producer
         print(f"{CAM_ID} - Kafka producer flushed and closed")
     elif save_results and all_results != []:
         # CSV MODE: Save accumulated results to file
@@ -905,7 +907,7 @@ def run_udp(
         vid_writer.release()
         cv2.destroyAllWindows()
         
-    if view_plot and os.environ.get("DISPLAY") is None: 
+    if view_plot and os.environ.get("DISPLAY"is None: 
         print(f"{CAM_ID} - Releasing video sender...")
         cap.release()
         vid_sender.release()
@@ -933,7 +935,7 @@ def main_udp(opt):
     #     # shutil.rmtree(exp_vid_dir)
     # opt.exp_dir = exp_vid_dir
     
-    if(opt.only_results and not opt.save_results) or (opt.only_results and (opt.save_plot or opt.view_plot or opt.get_speed or opt.get_semantic or opt.alerts)):
+    if(opt.only_results and not opt.save_resultsor (opt.only_results and (opt.save_plot or opt.view_plot or opt.get_speed or opt.get_semantic or opt.alerts)):
          print("Has introducido argumentos incompatibles con only_results.")
          sys.exit()
     ############################################################################
@@ -942,14 +944,14 @@ def main_udp(opt):
     kafka_config = load_kafka_config(opt)
 #######################################################################################
     # Convert edge_ips to a list if needed
-    # if (len(opt.edge_ips) > 1):
+    # if (len(opt.edge_ips> 1):
     #     edge_ips = opt.edge_ips.split(" ")
     # else:
     #     edge_ips = opt.edge_ips
         
     print(f"- - - -  RUN UDP of: {opt.edge_ips} - - - - ")
     # Run one thread per edge_ip
-    with ThreadPoolExecutor(max_workers=len(opt.edge_ips)) as executor:
+    with ThreadPoolExecutor(max_workers=len(opt.edge_ips)as executor:
         futures = [
             executor.submit(run_udp, 
                             edge_ip=edge_ip,
@@ -985,3 +987,4 @@ def main_udp(opt):
 
         # reid_weights=opt.reid_weights,
 
+  
