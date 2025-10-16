@@ -17,7 +17,7 @@ from src.viewTransform import ViewTransformer
 from src import utils, event, processing
 from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from kafka.config_loader import load_kafka_config
+from kafkaComm.config_loader import load_kafka_config
 import comm_udp as comm_udp
 
 # Use datetime timezone instead of ZoneInfo for better compatibility
@@ -26,10 +26,11 @@ from pycompss.api.api import compss_wait_on
 ###################################################################
 # Import Schema Registry functions from the new module
 ###################################################################
-from kafka.kafka_schema_registry import (
+from kafkaComm.kafka_schema_registry import (
     create_schema_registry_client,
     create_kafka_producer,
-    send_tracking_data_to_kafka
+    send_tracking_data_to_kafka,
+    send_target_to_kafka_or_csv
 )
 ####################################################################
 ###################################################################
@@ -121,7 +122,8 @@ def to_epoch_millis(ts_val):
 
     # --- Fallback: current local time ---
     return int(datetime.now(BASE_TZ).timestamp() * 1000)
-#########################################################################################
+
+
 def run_udp(
         edge_ip=None,
         track_thresh=None,
@@ -644,61 +646,10 @@ def run_udp(
                 timers['speed'].toc(value=t_speed_task)
 
                 timers['semantics'].toc(value=t_semantics_task) 
-                #Poner kafka o modo csv
-                ################################################################################ 
-                # Send Kafka message for THIS specific target immediately
-                # BUILD AND SEND TRACKING DATA TO KAFKA
-                #####################################################################################
-                # t is the tracklet of this loop iteration
-                # Extract UTM values from track object (proper source)
-                print(f"{CAM_ID} - Debug: Processing target {i}: {t}")
-                print(f"{CAM_ID} - Debug: t.location: {getattr(t, 'location', 'NO LOCATION ATTR')}")
-                print(f"{CAM_ID} - Debug: t.median_speed: {getattr(t, 'median_speed', 'NO SPEED ATTR')}")
-                print(f"{CAM_ID} - Debug: t.event: {getattr(t, 'event', 'NO EVENT ATTR')}")
                 
-                utm_x_m = float(t.location[0])
-                utm_y_m = float(t.location[1])
-                speed_kmh = float(getattr(t, "median_speed", 0.0))
-                polygon_type = getattr(getattr(t, "event", None), "polyType", None)
-                
-                print(f"{CAM_ID} - Debug: Extracted - utm_x_m: {utm_x_m}, utm_y_m: {utm_y_m}, speed_kmh: {speed_kmh}, polygon_type: {polygon_type}")
-                #########################################################################
-                # Only send to Kafka if UTM values are valid (not 0 and not None)
-                utm_valid = utm_x_m != 0.0 and utm_y_m != 0.0 and utm_x_m is not None and utm_y_m is not None
-                if use_kafka and kafka_producer and utm_valid:
-                    # Build Kafka message data
-                    data = {
-                        "cam_id": str(CAM_ID),
-                        "frame_id": int(frameId),
-                        "ts": int(ts_ms),  # Use converted timestamp
-                        "track_id": int(t.track_id),
-                        "coord_box1": float(t.tlwh[0]),
-                        "coord_box2": float(t.tlwh[1]),
-                        "coord_box3": float(t.tlwh[2]),
-                        "coord_box4": float(t.tlwh[3]),
-                        "box_score": float(t.score),
-                        "class_box": int(getattr(t, 'cl', 0)),
-                        "utm": {
-                            "utm_x_m": utm_x_m,
-                            "utm_y_m": utm_y_m,
-                            "speed_kmh": speed_kmh,
-                            "polygon_type": polygon_type
-                        }
-                    }
-                    
-                    # Send to Kafka
-                    success = send_tracking_data_to_kafka(kafka_producer, kafka_topic, data, CAM_ID)
-                    if not success:
-                        print(f"{CAM_ID} - Failed to send tracking data to Kafka")
-                    else:
-                        print(f"{CAM_ID} - Successfully sent tracking data to Kafka (UTM: {utm_x_m}, {utm_y_m})")
-                elif use_kafka and kafka_producer and not utm_valid:
-                    print(f"{CAM_ID} - Skipping Kafka send - invalid UTM values (utm_x_m: {utm_x_m}, utm_y_m: {utm_y_m}, track_id: {t.track_id})")
-                else:
-                    # CSV mode
-                    results.append(
-                        f"{CAM_ID},{frameId},{ts},{t.track_id},{t.tlwh[0]:.2f},{t.tlwh[1]:.2f},{t.tlwh[2]:.2f},{t.tlwh[3]:.2f},{t.score:.2f},{getattr(t, 'cl', 0)}\n"
-                    )
+                # Send tracking data to Kafka or append to CSV results
+                send_target_to_kafka_or_csv(t, i, CAM_ID, frameId, ts_ms, use_kafka, 
+                                          kafka_producer, kafka_topic, results)
 
 
 
