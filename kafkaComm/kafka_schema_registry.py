@@ -247,32 +247,23 @@ def schema_registry_serializer(data, topic_name, avro_serializer):
 #         print(f"Error serializing Avro data: {e}")
 #         print(f"Data causing error: {data}")
 #         return None
+
 def avro_serialize(data):
     """
-    Serialize data to Avro bytes for Kafka message values.
-
-    Preferred path: fastavro.schemaless_writer (single-record, no header).
-    Fallback: apache avro DatumWriter against a schema without logical types.
+    Serialize data to Avro bytes for Kafka message values (plain Avro, no wire format).
     """
     try:
         # ---- sanitize types (avoid numpy types/strings) ----
-        # ts
         ts_val = data.get('ts')
         data['ts'] = int(ts_val) if ts_val is not None else int(time.time() * 1000)
-
-        # ints
         if 'frame_id' in data:   data['frame_id'] = int(data['frame_id'])
         if 'track_id' in data:   data['track_id'] = int(data['track_id'])
         if 'class_box' in data:  data['class_box'] = int(data['class_box'])
-
-        # floats
         if 'coord_box1' in data: data['coord_box1'] = float(data['coord_box1'])
         if 'coord_box2' in data: data['coord_box2'] = float(data['coord_box2'])
         if 'coord_box3' in data: data['coord_box3'] = float(data['coord_box3'])
         if 'coord_box4' in data: data['coord_box4'] = float(data['coord_box4'])
         if 'box_score'  in data: data['box_score']  = float(data['box_score'])
-
-        # nested utm
         if 'utm' in data and isinstance(data['utm'], dict):
             utm = data['utm']
             if 'utm_x_m' in utm:   utm['utm_x_m'] = float(utm['utm_x_m'])
@@ -280,35 +271,61 @@ def avro_serialize(data):
             if 'speed_kmh' in utm: utm['speed_kmh'] = float(utm['speed_kmh'])
             if 'polygon_type' in utm and utm['polygon_type'] is not None:
                 utm['polygon_type'] = str(utm['polygon_type'])
-
-        # ---- preferred: fastavro schemaless ----
+        # fastavro
         if _FASTAVRO_AVAILABLE:
             buf = io.BytesIO()
             schemaless_writer(buf, _fa_parsed_schema(), data)
             return buf.getvalue()
-
-        # ---- fallback: apache avro (strip logical types to avoid strict validator issues) ----
+        # fallback: apache avro
         schema = _get_parsed_schema_no_logicals()
         writer = avro.io.DatumWriter(schema)
         buf = io.BytesIO()
         encoder = avro.io.BinaryEncoder(buf)
         writer.write(data, encoder)
         return buf.getvalue()
-
     except Exception as e:
         print(f"Error serializing Avro data: {e}")
         print(f"Data causing error: {data}")
         return None
 
+# --- Confluent Avro wire format serializer for edge ---
+def confluent_avro_wire_serialize(data, schema_id):
+    """
+    Serialize data in Confluent Avro wire format: [magic byte][schema id][avro payload].
+    Args:
+        data (dict): Data to serialize
+        schema_id (int): Schema ID from cloud Schema Registry
+    Returns:
+        bytes: Wire-format Avro message
+    """
+    avro_bytes = avro_serialize(data)
+    if avro_bytes is None:
+        return None
+    magic_byte = b'\x00'
+    schema_id_bytes = schema_id.to_bytes(4, byteorder='big')
+    return magic_byte + schema_id_bytes + avro_bytes
 
 
 
 
 
-def create_kafka_producer(topic_name, kafka_bootstrap_servers="localhost:9092", kafka_username=None, kafka_password=None, 
-                          kafka_security_protocol="PLAINTEXT", kafka_sasl_mechanism="SCRAM-SHA-512", 
-                          kafka_ssl_cafile=None, kafka_ssl_certfile=None, kafka_ssl_keyfile=None,
-                          schema_registry_client=None, avro_schema_subject=None, use_schema_registry=False):
+
+def create_kafka_producer(
+    topic_name,
+    kafka_bootstrap_servers="localhost:9092",
+    kafka_username=None,
+    kafka_password=None,
+    kafka_security_protocol="PLAINTEXT",
+    kafka_sasl_mechanism="SCRAM-SHA-512",
+    kafka_ssl_cafile=None,
+    kafka_ssl_certfile=None,
+    kafka_ssl_keyfile=None,
+    schema_registry_client=None,
+    avro_schema_subject=None,
+    use_schema_registry=False,
+    force_confluent_wire_format=False,
+    wire_schema_id=None
+):
     """
     Create and configure a Kafka producer with Avro serialization support.
     
@@ -356,20 +373,22 @@ def create_kafka_producer(topic_name, kafka_bootstrap_servers="localhost:9092", 
         "buffer_memory": 33554432,  # Producer buffer memory
     }
 
-    # Configure serialization strategy based on use_schema_registry flag
-    if use_schema_registry and SCHEMA_REGISTRY_AVAILABLE and schema_registry_client:
-        # Enterprise mode: Use Schema Registry for centralized schema management
+    # Serialization strategy
+    if force_confluent_wire_format:
+        if wire_schema_id is None:
+            raise ValueError("wire_schema_id must be provided for Confluent wire format serialization on edge.")
+        producer_config["value_serializer"] = lambda x: confluent_avro_wire_serialize(x, wire_schema_id)
+        print(f"[Kafka] Using Confluent Avro wire format (edge mode) with schema_id={wire_schema_id}")
+    elif use_schema_registry and SCHEMA_REGISTRY_AVAILABLE and schema_registry_client:
         _, schema_str = get_or_register_schema(schema_registry_client, avro_schema_subject, TRACKING_AVRO_SCHEMA)
         if schema_str:
             avro_serializer = AvroSerializer(schema_registry_client, schema_str)
             producer_config["value_serializer"] = lambda x: schema_registry_serializer(x, topic_name, avro_serializer)
             print(f"[Kafka] Using Schema Registry with subject: {avro_schema_subject}")
         else:
-            # Schema Registry failed, fallback to basic Avro
             producer_config["value_serializer"] = lambda x: avro_serialize(x)
             print("[Kafka] Schema Registry lookup failed; using basic Avro with TRACKING_AVRO_SCHEMA")
     else:
-        # Basic mode: Use standard Avro serialization with TRACKING_AVRO_SCHEMA
         producer_config["value_serializer"] = lambda x: avro_serialize(x)
         if use_schema_registry:
             print("[Kafka] Schema Registry requested but not available; using basic Avro with TRACKING_AVRO_SCHEMA")
