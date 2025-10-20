@@ -391,7 +391,8 @@ def send_target_to_kafka_or_csv(t, i, CAM_ID, frameId, ts_ms, use_kafka, kafka_p
                 "polygon_type": polygon_type
             }
         }
-        
+        # Debug: verify types before sending
+        print(f"{CAM_ID} - Data types - ts: {type(data['ts'])} = {data['ts']}")
         # Send to Kafka
         success = send_tracking_data_to_kafka(kafka_producer, kafka_topic, data, CAM_ID)
         if not success:

@@ -479,7 +479,8 @@ def run_udp(
             # Fallback to current timestamp if conversion fails
             ts_ms = int(time.time() * 1000)
             print(f"{CAM_ID} - Warning: Invalid timestamp '{ts}', using current time: {ts_ms}")
-
+        
+        print(f"{CAM_ID} - Info: Using timestamp: {ts_ms}")
         #############################################################################
 
         det = EMPTY_DET
