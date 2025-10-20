@@ -183,6 +183,20 @@ def avro_serialize(data):
         bytes or None: Serialized Avro bytes or None on error
     """
     try:
+        # Validate and fix common type issues before serialization
+        if 'ts' in data:
+            ts_val = data['ts']
+            if isinstance(ts_val, str):
+                # Convert string timestamp to integer
+                try:
+                    data['ts'] = int(ts_val)
+                    print(f"[Avro] Converted string timestamp '{ts_val}' to int: {data['ts']}")
+                except ValueError:
+                    data['ts'] = int(time.time() * 1000)
+                    print(f"[Avro] Invalid timestamp '{ts_val}', using current time: {data['ts']}")
+            elif not isinstance(ts_val, int):
+                data['ts'] = int(ts_val) if ts_val is not None else int(time.time() * 1000)
+        
         schema = get_parsed_schema()
         writer = avro.io.DatumWriter(schema)
         bytes_writer = io.BytesIO()
@@ -191,6 +205,7 @@ def avro_serialize(data):
         return bytes_writer.getvalue()
     except Exception as e:
         print(f"Error serializing Avro data: {e}")
+        print(f"Data causing error: {data}")
         return None
 
 
@@ -367,30 +382,38 @@ def send_target_to_kafka_or_csv(t, i, CAM_ID, frameId, ts_ms, use_kafka, kafka_p
     polygon_type = getattr(getattr(t, "event", None), "polyType", None)
     
     print(f"{CAM_ID} - Debug: Extracted - utm_x_m: {utm_x_m}, utm_y_m: {utm_y_m}, speed_kmh: {speed_kmh}, polygon_type: {polygon_type}")
+    print(f"{CAM_ID} - Debug: ts_ms value: '{ts_ms}' (type: {type(ts_ms)})")
     
     # Only send to Kafka if UTM values are valid (not 0 and not None)
     utm_valid = utm_x_m != 0.0 and utm_y_m != 0.0 and utm_x_m is not None and utm_y_m is not None
     
     if use_kafka and kafka_producer and utm_valid:
-        # Build Kafka message data
-        data = {
-            "cam_id": str(CAM_ID),
-            "frame_id": int(frameId),
-            "ts": int(ts_ms),  # Use converted timestamp
-            "track_id": int(t.track_id),
-            "coord_box1": float(t.tlwh[0]),
-            "coord_box2": float(t.tlwh[1]),
-            "coord_box3": float(t.tlwh[2]),
-            "coord_box4": float(t.tlwh[3]),
-            "box_score": float(t.score),
-            "class_box": int(getattr(t, 'cl', 0)),
-            "utm": {
-                "utm_x_m": utm_x_m,
-                "utm_y_m": utm_y_m,
-                "speed_kmh": speed_kmh,
-                "polygon_type": polygon_type
+        # Build Kafka message data with proper type validation
+        try:
+            # Ensure timestamp is a long integer (required by Avro schema)
+            timestamp_val = int(ts_ms) if isinstance(ts_ms, (int, float, str)) else int(time.time() * 1000)
+            
+            data = {
+                "cam_id": str(CAM_ID),
+                "frame_id": int(frameId),
+                "ts": timestamp_val,  # Ensure this is a long integer
+                "track_id": int(t.track_id),
+                "coord_box1": float(t.tlwh[0]),
+                "coord_box2": float(t.tlwh[1]),
+                "coord_box3": float(t.tlwh[2]),
+                "coord_box4": float(t.tlwh[3]),
+                "box_score": float(t.score),
+                "class_box": int(getattr(t, 'cl', 0)),
+                "utm": {
+                    "utm_x_m": float(utm_x_m),
+                    "utm_y_m": float(utm_y_m),
+                    "speed_kmh": float(speed_kmh),
+                    "polygon_type": str(polygon_type) if polygon_type is not None else None
+                }
             }
-        }
+        except (ValueError, TypeError) as e:
+            print(f"{CAM_ID} - Error preparing Kafka message data: {e}")
+            return False
         
         # Send to Kafka
         success = send_tracking_data_to_kafka(kafka_producer, kafka_topic, data, CAM_ID)
