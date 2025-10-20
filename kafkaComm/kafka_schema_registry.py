@@ -6,6 +6,46 @@ import avro.schema
 import avro.io
 import os
 import time
+# --- NEW: fastavro support ---------------------------------------------------
+try:
+    from fastavro import schemaless_writer, parse_schema as fa_parse_schema
+    _FASTAVRO_AVAILABLE = True
+except ImportError:
+    _FASTAVRO_AVAILABLE = False
+    print("[Warning] fastavro not available, falling back to apache avro writer")
+
+_FA_PARSED_TRACKING_SCHEMA = None
+
+def _fa_parsed_schema():
+    """Parse and cache the TRACKING_AVRO_SCHEMA for fastavro."""
+    global _FA_PARSED_TRACKING_SCHEMA
+    if _FA_PARSED_TRACKING_SCHEMA is None:
+        _FA_PARSED_TRACKING_SCHEMA = fa_parse_schema(json.loads(TRACKING_AVRO_SCHEMA))
+    return _FA_PARSED_TRACKING_SCHEMA
+
+# (Optional) safer apache-avro fallback: strip logical types to avoid strict validators
+def _strip_logical_types(schema_str: str) -> str:
+    s = json.loads(schema_str)
+    def walk(node):
+        if isinstance(node, dict):
+            node.pop("logicalType", None)
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+    walk(s)
+    return json.dumps(s)
+
+_PARSED_TRACKING_SCHEMA_NO_LOGICALS = None
+def _get_parsed_schema_no_logicals():
+    global _PARSED_TRACKING_SCHEMA_NO_LOGICALS
+    if _PARSED_TRACKING_SCHEMA_NO_LOGICALS is None:
+        _PARSED_TRACKING_SCHEMA_NO_LOGICALS = avro.schema.parse(
+            _strip_logical_types(TRACKING_AVRO_SCHEMA)
+        )
+    return _PARSED_TRACKING_SCHEMA_NO_LOGICALS
+# -----------------------------------------------------------------------------
 
 # Schema Registry imports for enterprise Avro schema management
 try:
@@ -169,44 +209,97 @@ def schema_registry_serializer(data, topic_name, avro_serializer):
         print(f"[Schema Registry] Serialization error: {e}; falling back to basic Avro")
         return avro_serialize(data)
 
+# def avro_serialize(data):
+#     """
+#     Serialize data using basic Avro format (no Schema Registry).
+    
+#     This function provides fallback serialization when Schema Registry
+#     is not available or configured. Uses the pre-parsed schema for efficiency.
+    
+#     Args:
+#         data (dict): Data dictionary matching the Avro schema
+    
+#     Returns:
+#         bytes or None: Serialized Avro bytes or None on error
+#     """
+#     try:
+#         # Validate and fix common type issues before serialization
+#         if 'ts' in data:
+#             ts_val = data['ts']
+#             if isinstance(ts_val, str):
+#                 # Convert string timestamp to integer
+#                 try:
+#                     data['ts'] = int(ts_val)
+#                     print(f"[Avro] Converted string timestamp '{ts_val}' to int: {data['ts']}")
+#                 except ValueError:
+#                     data['ts'] = int(time.time() * 1000)
+#                     print(f"[Avro] Invalid timestamp '{ts_val}', using current time: {data['ts']}")
+#             elif not isinstance(ts_val, int):
+#                 data['ts'] = int(ts_val) if ts_val is not None else int(time.time() * 1000)
+        
+#         schema = get_parsed_schema()
+#         writer = avro.io.DatumWriter(schema)
+#         bytes_writer = io.BytesIO()
+#         encoder = avro.io.BinaryEncoder(bytes_writer)
+#         writer.write(data, encoder)
+#         return bytes_writer.getvalue()
+#     except Exception as e:
+#         print(f"Error serializing Avro data: {e}")
+#         print(f"Data causing error: {data}")
+#         return None
 def avro_serialize(data):
     """
-    Serialize data using basic Avro format (no Schema Registry).
-    
-    This function provides fallback serialization when Schema Registry
-    is not available or configured. Uses the pre-parsed schema for efficiency.
-    
-    Args:
-        data (dict): Data dictionary matching the Avro schema
-    
-    Returns:
-        bytes or None: Serialized Avro bytes or None on error
+    Serialize data to Avro bytes for Kafka message values.
+
+    Preferred path: fastavro.schemaless_writer (single-record, no header).
+    Fallback: apache avro DatumWriter against a schema without logical types.
     """
     try:
-        # Validate and fix common type issues before serialization
-        if 'ts' in data:
-            ts_val = data['ts']
-            if isinstance(ts_val, str):
-                # Convert string timestamp to integer
-                try:
-                    data['ts'] = int(ts_val)
-                    print(f"[Avro] Converted string timestamp '{ts_val}' to int: {data['ts']}")
-                except ValueError:
-                    data['ts'] = int(time.time() * 1000)
-                    print(f"[Avro] Invalid timestamp '{ts_val}', using current time: {data['ts']}")
-            elif not isinstance(ts_val, int):
-                data['ts'] = int(ts_val) if ts_val is not None else int(time.time() * 1000)
-        
-        schema = get_parsed_schema()
+        # ---- sanitize types (avoid numpy types/strings) ----
+        # ts
+        ts_val = data.get('ts')
+        data['ts'] = int(ts_val) if ts_val is not None else int(time.time() * 1000)
+
+        # ints
+        if 'frame_id' in data:   data['frame_id'] = int(data['frame_id'])
+        if 'track_id' in data:   data['track_id'] = int(data['track_id'])
+        if 'class_box' in data:  data['class_box'] = int(data['class_box'])
+
+        # floats
+        if 'coord_box1' in data: data['coord_box1'] = float(data['coord_box1'])
+        if 'coord_box2' in data: data['coord_box2'] = float(data['coord_box2'])
+        if 'coord_box3' in data: data['coord_box3'] = float(data['coord_box3'])
+        if 'coord_box4' in data: data['coord_box4'] = float(data['coord_box4'])
+        if 'box_score'  in data: data['box_score']  = float(data['box_score'])
+
+        # nested utm
+        if 'utm' in data and isinstance(data['utm'], dict):
+            utm = data['utm']
+            if 'utm_x_m' in utm:   utm['utm_x_m'] = float(utm['utm_x_m'])
+            if 'utm_y_m' in utm:   utm['utm_y_m'] = float(utm['utm_y_m'])
+            if 'speed_kmh' in utm: utm['speed_kmh'] = float(utm['speed_kmh'])
+            if 'polygon_type' in utm and utm['polygon_type'] is not None:
+                utm['polygon_type'] = str(utm['polygon_type'])
+
+        # ---- preferred: fastavro schemaless ----
+        if _FASTAVRO_AVAILABLE:
+            buf = io.BytesIO()
+            schemaless_writer(buf, _fa_parsed_schema(), data)
+            return buf.getvalue()
+
+        # ---- fallback: apache avro (strip logical types to avoid strict validator issues) ----
+        schema = _get_parsed_schema_no_logicals()
         writer = avro.io.DatumWriter(schema)
-        bytes_writer = io.BytesIO()
-        encoder = avro.io.BinaryEncoder(bytes_writer)
+        buf = io.BytesIO()
+        encoder = avro.io.BinaryEncoder(buf)
         writer.write(data, encoder)
-        return bytes_writer.getvalue()
+        return buf.getvalue()
+
     except Exception as e:
         print(f"Error serializing Avro data: {e}")
         print(f"Data causing error: {data}")
         return None
+
 
 
 
