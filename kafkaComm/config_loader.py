@@ -1,4 +1,3 @@
-
 # config_loader.py
 import os
 
@@ -48,7 +47,7 @@ def get_kafka_config_from_env():
 
         # Avro schema settings
         "avro_schema_subject": os.getenv("AVRO_SCHEMA_SUBJECT", "smartcity-tracking-value"),
-        "use_schema_registry": os.getenv("USE_SCHEMA_REGISTRY", "false").lower() == "true",
+        "use_schema_registry": os.getenv("USE_SCHEMA_REGISTRY", "false").lower(),
         
         # Frame-based flush configuration for performance tuning
         "kafka_flush_interval": int(os.getenv("KAFKA_FLUSH_INTERVAL", "100")),  # Default: flush every 100 frames

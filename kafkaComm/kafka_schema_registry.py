@@ -6,46 +6,6 @@ import avro.schema
 import avro.io
 import os
 import time
-# --- NEW: fastavro support ---------------------------------------------------
-try:
-    from fastavro import schemaless_writer, parse_schema as fa_parse_schema
-    _FASTAVRO_AVAILABLE = True
-except ImportError:
-    _FASTAVRO_AVAILABLE = False
-    print("[Warning] fastavro not available, falling back to apache avro writer")
-
-_FA_PARSED_TRACKING_SCHEMA = None
-
-def _fa_parsed_schema():
-    """Parse and cache the TRACKING_AVRO_SCHEMA for fastavro."""
-    global _FA_PARSED_TRACKING_SCHEMA
-    if _FA_PARSED_TRACKING_SCHEMA is None:
-        _FA_PARSED_TRACKING_SCHEMA = fa_parse_schema(json.loads(TRACKING_AVRO_SCHEMA))
-    return _FA_PARSED_TRACKING_SCHEMA
-
-# (Optional) safer apache-avro fallback: strip logical types to avoid strict validators
-def _strip_logical_types(schema_str: str) -> str:
-    s = json.loads(schema_str)
-    def walk(node):
-        if isinstance(node, dict):
-            node.pop("logicalType", None)
-            for v in node.values():
-                walk(v)
-        elif isinstance(node, list):
-            for v in node:
-                walk(v)
-    walk(s)
-    return json.dumps(s)
-
-_PARSED_TRACKING_SCHEMA_NO_LOGICALS = None
-def _get_parsed_schema_no_logicals():
-    global _PARSED_TRACKING_SCHEMA_NO_LOGICALS
-    if _PARSED_TRACKING_SCHEMA_NO_LOGICALS is None:
-        _PARSED_TRACKING_SCHEMA_NO_LOGICALS = avro.schema.parse(
-            _strip_logical_types(TRACKING_AVRO_SCHEMA)
-        )
-    return _PARSED_TRACKING_SCHEMA_NO_LOGICALS
-# -----------------------------------------------------------------------------
 
 # Schema Registry imports for enterprise Avro schema management
 try:
@@ -209,123 +169,38 @@ def schema_registry_serializer(data, topic_name, avro_serializer):
         print(f"[Schema Registry] Serialization error: {e}; falling back to basic Avro")
         return avro_serialize(data)
 
-# def avro_serialize(data):
-#     """
-#     Serialize data using basic Avro format (no Schema Registry).
-    
-#     This function provides fallback serialization when Schema Registry
-#     is not available or configured. Uses the pre-parsed schema for efficiency.
-    
-#     Args:
-#         data (dict): Data dictionary matching the Avro schema
-    
-#     Returns:
-#         bytes or None: Serialized Avro bytes or None on error
-#     """
-#     try:
-#         # Validate and fix common type issues before serialization
-#         if 'ts' in data:
-#             ts_val = data['ts']
-#             if isinstance(ts_val, str):
-#                 # Convert string timestamp to integer
-#                 try:
-#                     data['ts'] = int(ts_val)
-#                     print(f"[Avro] Converted string timestamp '{ts_val}' to int: {data['ts']}")
-#                 except ValueError:
-#                     data['ts'] = int(time.time() * 1000)
-#                     print(f"[Avro] Invalid timestamp '{ts_val}', using current time: {data['ts']}")
-#             elif not isinstance(ts_val, int):
-#                 data['ts'] = int(ts_val) if ts_val is not None else int(time.time() * 1000)
-        
-#         schema = get_parsed_schema()
-#         writer = avro.io.DatumWriter(schema)
-#         bytes_writer = io.BytesIO()
-#         encoder = avro.io.BinaryEncoder(bytes_writer)
-#         writer.write(data, encoder)
-#         return bytes_writer.getvalue()
-#     except Exception as e:
-#         print(f"Error serializing Avro data: {e}")
-#         print(f"Data causing error: {data}")
-#         return None
-
 def avro_serialize(data):
     """
-    Serialize data to Avro bytes for Kafka message values (plain Avro, no wire format).
+    Serialize data using basic Avro format (no Schema Registry).
+    
+    This function provides fallback serialization when Schema Registry
+    is not available or configured. Uses the pre-parsed schema for efficiency.
+    
+    Args:
+        data (dict): Data dictionary matching the Avro schema
+    
+    Returns:
+        bytes or None: Serialized Avro bytes or None on error
     """
     try:
-        # ---- sanitize types (avoid numpy types/strings) ----
-        ts_val = data.get('ts')
-        data['ts'] = int(ts_val) if ts_val is not None else int(time.time() * 1000)
-        if 'frame_id' in data:   data['frame_id'] = int(data['frame_id'])
-        if 'track_id' in data:   data['track_id'] = int(data['track_id'])
-        if 'class_box' in data:  data['class_box'] = int(data['class_box'])
-        if 'coord_box1' in data: data['coord_box1'] = float(data['coord_box1'])
-        if 'coord_box2' in data: data['coord_box2'] = float(data['coord_box2'])
-        if 'coord_box3' in data: data['coord_box3'] = float(data['coord_box3'])
-        if 'coord_box4' in data: data['coord_box4'] = float(data['coord_box4'])
-        if 'box_score'  in data: data['box_score']  = float(data['box_score'])
-        if 'utm' in data and isinstance(data['utm'], dict):
-            utm = data['utm']
-            if 'utm_x_m' in utm:   utm['utm_x_m'] = float(utm['utm_x_m'])
-            if 'utm_y_m' in utm:   utm['utm_y_m'] = float(utm['utm_y_m'])
-            if 'speed_kmh' in utm: utm['speed_kmh'] = float(utm['speed_kmh'])
-            if 'polygon_type' in utm and utm['polygon_type'] is not None:
-                utm['polygon_type'] = str(utm['polygon_type'])
-        # fastavro
-        if _FASTAVRO_AVAILABLE:
-            buf = io.BytesIO()
-            schemaless_writer(buf, _fa_parsed_schema(), data)
-            return buf.getvalue()
-        # fallback: apache avro
-        schema = _get_parsed_schema_no_logicals()
+        schema = get_parsed_schema()
         writer = avro.io.DatumWriter(schema)
-        buf = io.BytesIO()
-        encoder = avro.io.BinaryEncoder(buf)
+        bytes_writer = io.BytesIO()
+        encoder = avro.io.BinaryEncoder(bytes_writer)
         writer.write(data, encoder)
-        return buf.getvalue()
+        return bytes_writer.getvalue()
     except Exception as e:
         print(f"Error serializing Avro data: {e}")
-        print(f"Data causing error: {data}")
         return None
 
-# --- Confluent Avro wire format serializer for edge ---
-def confluent_avro_wire_serialize(data, schema_id):
-    """
-    Serialize data in Confluent Avro wire format: [magic byte][schema id][avro payload].
-    Args:
-        data (dict): Data to serialize
-        schema_id (int): Schema ID from cloud Schema Registry
-    Returns:
-        bytes: Wire-format Avro message
-    """
-    avro_bytes = avro_serialize(data)
-    if avro_bytes is None:
-        return None
-    magic_byte = b'\x00'
-    schema_id_bytes = schema_id.to_bytes(4, byteorder='big')
-    return magic_byte + schema_id_bytes + avro_bytes
 
 
 
 
-
-
-def create_kafka_producer(
-    topic_name,
-    kafka_bootstrap_servers="localhost:9092",
-    kafka_username=None,
-    kafka_password=None,
-    kafka_security_protocol="PLAINTEXT",
-    kafka_sasl_mechanism="SCRAM-SHA-512",
-    kafka_ssl_cafile=None,
-    kafka_ssl_certfile=None,
-    kafka_ssl_keyfile=None,
-    schema_registry_client=None,
-    avro_schema_subject=None,
-    use_schema_registry=False,
-    force_confluent_wire_format=False,
-    wire_schema_id=None
-):
+def create_kafka_producer(topic_name, kafka_bootstrap_servers="localhost:9092", kafka_username=None, kafka_password=None, 
+                          kafka_security_protocol="PLAINTEXT", kafka_sasl_mechanism="SCRAM-SHA-512", 
+                          kafka_ssl_cafile=None, kafka_ssl_certfile=None, kafka_ssl_keyfile=None,
+                          schema_registry_client=None, avro_schema_subject=None, use_schema_registry=False):
     """
     Create and configure a Kafka producer with Avro serialization support.
     
@@ -373,22 +248,20 @@ def create_kafka_producer(
         "buffer_memory": 33554432,  # Producer buffer memory
     }
 
-    # Serialization strategy
-    if force_confluent_wire_format:
-        if wire_schema_id is None:
-            raise ValueError("wire_schema_id must be provided for Confluent wire format serialization on edge.")
-        producer_config["value_serializer"] = lambda x: confluent_avro_wire_serialize(x, wire_schema_id)
-        print(f"[Kafka] Using Confluent Avro wire format (edge mode) with schema_id={wire_schema_id}")
-    elif use_schema_registry and SCHEMA_REGISTRY_AVAILABLE and schema_registry_client:
+    # Configure serialization strategy based on use_schema_registry flag
+    if use_schema_registry and SCHEMA_REGISTRY_AVAILABLE and schema_registry_client:
+        # Enterprise mode: Use Schema Registry for centralized schema management
         _, schema_str = get_or_register_schema(schema_registry_client, avro_schema_subject, TRACKING_AVRO_SCHEMA)
         if schema_str:
             avro_serializer = AvroSerializer(schema_registry_client, schema_str)
             producer_config["value_serializer"] = lambda x: schema_registry_serializer(x, topic_name, avro_serializer)
             print(f"[Kafka] Using Schema Registry with subject: {avro_schema_subject}")
         else:
+            # Schema Registry failed, fallback to basic Avro
             producer_config["value_serializer"] = lambda x: avro_serialize(x)
             print("[Kafka] Schema Registry lookup failed; using basic Avro with TRACKING_AVRO_SCHEMA")
     else:
+        # Basic mode: Use standard Avro serialization with TRACKING_AVRO_SCHEMA
         producer_config["value_serializer"] = lambda x: avro_serialize(x)
         if use_schema_registry:
             print("[Kafka] Schema Registry requested but not available; using basic Avro with TRACKING_AVRO_SCHEMA")
@@ -494,38 +367,30 @@ def send_target_to_kafka_or_csv(t, i, CAM_ID, frameId, ts_ms, use_kafka, kafka_p
     polygon_type = getattr(getattr(t, "event", None), "polyType", None)
     
     print(f"{CAM_ID} - Debug: Extracted - utm_x_m: {utm_x_m}, utm_y_m: {utm_y_m}, speed_kmh: {speed_kmh}, polygon_type: {polygon_type}")
-    print(f"{CAM_ID} - Debug: ts_ms value: '{ts_ms}' (type: {type(ts_ms)})")
     
     # Only send to Kafka if UTM values are valid (not 0 and not None)
     utm_valid = utm_x_m != 0.0 and utm_y_m != 0.0 and utm_x_m is not None and utm_y_m is not None
     
     if use_kafka and kafka_producer and utm_valid:
-        # Build Kafka message data with proper type validation
-        try:
-            # Ensure timestamp is a long integer (required by Avro schema)
-            
-            
-            data = {
-                "cam_id": str(CAM_ID),
-                "frame_id": int(frameId),
-                "ts": ts_ms,  # Ensure this is a long integer
-                "track_id": int(t.track_id),
-                "coord_box1": float(t.tlwh[0]),
-                "coord_box2": float(t.tlwh[1]),
-                "coord_box3": float(t.tlwh[2]),
-                "coord_box4": float(t.tlwh[3]),
-                "box_score": float(t.score),
-                "class_box": int(getattr(t, 'cl', 0)),
-                "utm": {
-                    "utm_x_m": float(utm_x_m),
-                    "utm_y_m": float(utm_y_m),
-                    "speed_kmh": float(speed_kmh),
-                    "polygon_type": str(polygon_type) if polygon_type is not None else None
-                }
+        # Build Kafka message data
+        data = {
+            "cam_id": str(CAM_ID),
+            "frame_id": int(frameId),
+            "ts": int(ts_ms),  # Use converted timestamp
+            "track_id": int(t.track_id),
+            "coord_box1": float(t.tlwh[0]),
+            "coord_box2": float(t.tlwh[1]),
+            "coord_box3": float(t.tlwh[2]),
+            "coord_box4": float(t.tlwh[3]),
+            "box_score": float(t.score),
+            "class_box": int(getattr(t, 'cl', 0)),
+            "utm": {
+                "utm_x_m": utm_x_m,
+                "utm_y_m": utm_y_m,
+                "speed_kmh": speed_kmh,
+                "polygon_type": polygon_type
             }
-        except (ValueError, TypeError) as e:
-            print(f"{CAM_ID} - Error preparing Kafka message data: {e}")
-            return False
+        }
         
         # Send to Kafka
         success = send_tracking_data_to_kafka(kafka_producer, kafka_topic, data, CAM_ID)
