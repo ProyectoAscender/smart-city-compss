@@ -474,7 +474,7 @@ def run_udp(
         # Convert to epoch milliseconds (UTC reference)
         # Ensure timestamp is properly converted to long integer for Avro schema compatibility
         try:
-            ts_ms = int(float(ts)) if ts is not None else int(time.time() * 1000)
+            ts_ms = int(to_epoch_millis(ts))
         except (ValueError, TypeError):
             # Fallback to current timestamp if conversion fails
             ts_ms = int(time.time() * 1000)

@@ -391,12 +391,12 @@ def send_target_to_kafka_or_csv(t, i, CAM_ID, frameId, ts_ms, use_kafka, kafka_p
         # Build Kafka message data with proper type validation
         try:
             # Ensure timestamp is a long integer (required by Avro schema)
-            timestamp_val = int(ts_ms) if isinstance(ts_ms, (int, float, str)) else int(time.time() * 1000)
+            
             
             data = {
                 "cam_id": str(CAM_ID),
                 "frame_id": int(frameId),
-                "ts": timestamp_val,  # Ensure this is a long integer
+                "ts": ts_ms,  # Ensure this is a long integer
                 "track_id": int(t.track_id),
                 "coord_box1": float(t.tlwh[0]),
                 "coord_box2": float(t.tlwh[1]),
