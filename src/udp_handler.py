@@ -15,7 +15,7 @@ from src.visualize import plot_tracking
 from trackers.multi_tracker_zoo import create_tracker
 from src.viewTransform import ViewTransformer
 from src import utils, event, processing
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from kafkaComm.config_loader import load_kafka_config
 import comm_udp as comm_udp
@@ -325,21 +325,15 @@ def run_udp(
         print(f'{CAM_ID} - Video receiving from camera-edge prepared')
         vid_fps = cap.get(cv2.CAP_PROP_FPS)
         FPS = vid_fps if int(vid_fps) > 0 else DEFAULT_FPS
-    current_hour = int(datetime.now().strftime("%M"))
+    current_hour = int(datetime.now().strftime("%H"))
+
     # Prepare video save output
     if save_plot:
-
-        folder_path = os.path.join(
-
-            exp_dir,
-
-            datetime.now().strftime("%Y%m%d"),
-
-            CAM_ID,
-
-            str(current_hour)
-
-        )
+        # now_minus_1m = datetime.now() - timedelta(minutes=1)
+        folder_path = os.path.join(exp_dir,
+                               datetime.now().strftime("%Y%m%d"), 
+                               datetime.now().strftime("%H%M"),
+                               CAM_ID)
 
         # Create the folder if it doesn't exist
         os.makedirs(folder_path, exist_ok=True)
@@ -417,7 +411,7 @@ def run_udp(
           
         timers['total'].tic()
         hex_data = ""                 
-        new_hour = int(datetime.now().strftime("%M"))  
+        new_hour = int(datetime.now().strftime("%H"))  
         frame_idx += 1
         ###         Probably moving this to a separate thread would be nice... to fully decouples compute from IO.
 
@@ -431,6 +425,7 @@ def run_udp(
             try: 
                 # Receiving boxes. Como address no nos importa, no lo guardamos como _
                 hex_data, _ = udpSock.recvfrom(16000)  # bigger buffer if needed
+                ts_reception = datetime.now()
             except BlockingIOError as b:
                 if(hex_data==""):   # hex_data is set to "" at the end of the processing loop
                     # print(f"[main.py - {CAM_ID}] No bounding box data, continuing...")
@@ -479,7 +474,7 @@ def run_udp(
             # Fallback to current timestamp if conversion fails
             ts_ms = int(time.time() * 1000)
             print(f"{CAM_ID} - Warning: Invalid timestamp '{ts}', using current time: {ts_ms}")
-        
+        ts_ms=ts
         print(f"{CAM_ID} - Info: Using timestamp: {ts_ms}")
         #############################################################################
 
@@ -553,10 +548,8 @@ def run_udp(
 
             
 
-            line = (f"\n{CAM_ID},{frameId},{ts},{t.track_id},"
-
+            line = (f"\n{CAM_ID},{frameId},{ts},{ts_reception},{t.track_id},"
                     f"{t.tlwh[0]:.2f},{t.tlwh[1]:.2f},{t.tlwh[2]:.2f},{t.tlwh[3]:.2f},"
-
                     f"{t.score:.2f},{t.cl}")
 
             frame_results.append(line)
@@ -587,7 +580,7 @@ def run_udp(
                 # Convert to CSV mode for only_results
                 for i, t in enumerate(online_targets):
                     results.append(
-                        f"{CAM_ID},{frameId},{ts},{t.track_id},{t.tlwh[0]:.2f},{t.tlwh[1]:.2f},{t.tlwh[2]:.2f},{t.tlwh[3]:.2f},{t.score:.2f},{getattr(t, 'cl', 0)}\n"
+                        f"{CAM_ID},{frameId},{ts_reception},{t.track_id},{t.tlwh[0]:.2f},{t.tlwh[1]:.2f},{t.tlwh[2]:.2f},{t.tlwh[3]:.2f},{t.score:.2f},{getattr(t, 'cl', 0)}\n"
                     )
             else:
                 # CSV mode: accumulate results
