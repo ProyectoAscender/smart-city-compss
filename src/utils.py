@@ -4,7 +4,7 @@ import json
 from shapely.geometry import Polygon
 from poly import PolySemantic
 
-from datetime import datetime
+from datetime import datetime, timedelta
  
 
  
@@ -94,10 +94,11 @@ def getPolysRoi(json_path):
 
 def save_results(results, exp_dir, CAM_ID):
     
+    # now_minus_1m = datetime.now() - timedelta(minutes=1)
     folder_path = os.path.join(exp_dir, 
                                datetime.now().strftime("%Y%m%d"), 
-                               CAM_ID, 
-                               datetime.now().strftime("%H%M%S"))
+                               datetime.now().strftime("%H%M"),
+                               CAM_ID)
     
     os.makedirs(folder_path, exist_ok=True)
     res_file = os.path.join(folder_path, "tracklets.txt")

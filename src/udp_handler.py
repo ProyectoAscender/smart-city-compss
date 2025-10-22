@@ -13,7 +13,7 @@ from src.visualize import plot_tracking
 from trackers.multi_tracker_zoo import create_tracker
 from src.viewTransform import ViewTransformer
 from src import utils, event, processing
-from datetime import datetime
+from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import comm_udp as comm_udp
@@ -147,7 +147,7 @@ def run_udp(
         
         # Gstreamer input from camera edge. ONLY processed frames are sent and received trough here.
         gst_str = (
-            "udpsrc port=5001 multicast-group=239.255.12.41 auto-multicast=true ! "
+            "udpsrc port=5002 multicast-group=239.255.12.41 auto-multicast=true ! "
             "application/x-rtp,media=video,clock-rate=90000,encoding-name=H264 ! "
             "rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! "
             "queue max-size-buffers=1 leaky=downstream ! "
@@ -163,15 +163,15 @@ def run_udp(
         vid_fps = cap.get(cv2.CAP_PROP_FPS)
         FPS = vid_fps if int(vid_fps) > 0 else DEFAULT_FPS
 
-    current_hour = int(datetime.now().strftime("%M"))
+    current_hour = int(datetime.now().strftime("%H"))
     # Prepare video save output
     if save_plot:
-        folder_path = os.path.join(
-            exp_dir,
-            datetime.now().strftime("%Y%m%d"),
-            CAM_ID,
-            str(current_hour)
-        )
+
+        # now_minus_1m = datetime.now() - timedelta(minutes=1)
+        folder_path = os.path.join(exp_dir,
+                               datetime.now().strftime("%Y%m%d"), 
+                               datetime.now().strftime("%H%M"),
+                               CAM_ID)
          
         os.makedirs(folder_path, exist_ok=True)
         video_path = os.path.join(folder_path, VIDEO_OUT_NAME)
@@ -232,7 +232,7 @@ def run_udp(
     while frameId <= NUM_ITERS or NEVEREND == True:
         timers['total'].tic()
         hex_data = ""                 
-        new_hour = int(datetime.now().strftime("%M"))  
+        new_hour = int(datetime.now().strftime("%H"))  
         frame_idx += 1
         
         
@@ -248,6 +248,7 @@ def run_udp(
             try: 
                 # Receiving boxes
                 hex_data, address = udpSock.recvfrom(16000)  # bigger buffer if needed
+                ts_reception = datetime.now()
             except BlockingIOError as b:
                 if(hex_data==""):   # hex_data is set to "" at the end of the processing loop
                     # print(f"[main.py - {CAM_ID}] No bounding box data, continuing...")
@@ -358,7 +359,7 @@ def run_udp(
             online_ids.append(t.track_id)
             online_scores.append(t.score)
             
-            line = (f"\n{CAM_ID},{frameId},{ts},{t.track_id},"
+            line = (f"\n{CAM_ID},{frameId},{ts},{ts_reception},{t.track_id},"
                     f"{t.tlwh[0]:.2f},{t.tlwh[1]:.2f},{t.tlwh[2]:.2f},{t.tlwh[3]:.2f},"
                     f"{t.score:.2f},{t.cl}")
             frame_results.append(line)

@@ -28,45 +28,60 @@ def speed_task(t, view_transformer, ts):
     mapPoints = view_transformer.pixel_to_map(pixel = [(pixel_bc[0], pixel_bc[1])])[0]#.astype(int)[0]
     t.location = mapPoints
     
-    
-    if t.prev_location is not None: 
-        # print(f'XXXXX prev loc: {t.prev_location}')
-        # print(f'XXXXX loc: {t.location}')
+    if t.prev_location is not None and t.prev_ts is not None: # only tracklets more than one location
         distance = np.sqrt(np.sum(np.power(t.location - t.prev_location, 2)))
-        t.distances = np.append(t.distances, distance)
-        t.prev_location = t.location
-
-    else: 
-        online_speeds = f"#{t.track_id} NaN km/h /n"
-        # print(f'XXXXX first prev loc: {t.prev_location}')
-        t.prev_location = t.location
-
-    if t.prev_ts is not None:
         delta_ts = (ts - t.prev_ts)
         t.prev_ts = ts
-    
-   
-        # Calculate speed
-        # print(f'XXXXX delta_ts: {delta_ts}')
-        # print(f'XXXXX distance: {distance}')
+        t.prev_location = t.location
 
-        speed = (distance / (delta_ts / 1000000)) * 3.6
-        # t.speeds = np.append(t.speeds, speed)
-        # Mantener solo las últimas 5 velocidades (append y recortar)
-        if t.speeds.size >= 5:
-            # Desplazar hacia la izquierda y colocar el nuevo al final
-            t.speeds = np.roll(t.speeds, -1)
-            t.speeds[-1] = speed
+        total_distance =  t.distanceAccum + distance
+        total_time = delta_ts + t.timeAccum
+
+        # If accumulated distance is > 1 meter, get speed and reset accumulators
+        if (total_distance)  > 1.5:
+            # Speed calculated adding to distance and time delta the previous accumulated data
+            speed = (total_distance / ((total_time) / 1000000)) * 3.6
+            t.distances = np.append(t.distances, total_distance)
+
+            t.distanceAccum = 0
+            t.timeAccum = 0
+
+            if (t.speeds.size < 5):
+                t.speeds = np.append(t.speeds, speed)
+            else:
+                t.speeds[:-1] = t.speeds[1:]
+                t.speeds[-1] = speed
+
+        else: # distance below 1 meter
+            # accumulate distance and time until > 1 meter
+            t.distanceAccum += distance
+            t.timeAccum += delta_ts
+
+            # Adding nan to tracker arrays
+            t.distances = np.append(t.distances, np.nan)
+            if (t.speeds.size < 5):
+                t.speeds = np.append(t.speeds, np.nan)
+            else:
+                t.speeds[:-1] = t.speeds[1:]
+                t.speeds[-1] = np.nan
+
+        # Get median  of last 5 speeds. If nan is majority return nan
+        if np.isnan(t.speeds).sum() == 4:
+            t.median_speed = np.nan
+        elif np.isnan(t.speeds).sum() == 5:
+            t.median_speed = 0
         else:
-            t.speeds = np.append(t.speeds, speed)
-            
-        # print(f'XXXXX speed: {t.speeds} for {t.track_id}')
-        t.median_speed = np.median(t.speeds)
-        online_speeds = f"#{t.track_id} {t.median_speed.astype(int)} km/h /n" # 
-    else:
-        online_speeds = f"#{t.track_id} NaN km/h /n"
-        t.prev_ts = ts
+            t.median_speed = np.nanmedian(t.speeds)
+        online_speeds = f"#{t.track_id}  {t.median_speed:.1f} km/h /n" # 
+            # online_speeds = f"#{t.track_id} NaN km/h /n"
 
+    else: 
+        # Preparing tracklet for next iteration
+        t.prev_ts = ts
+        t.prev_location = t.location
+        t.distances = np.append(t.distances, np.nan)
+        t.speeds = np.append(t.speeds, np.nan)
+        online_speeds = f"#{t.track_id} NaN km/h /n"
         
     return t, online_speeds
 
