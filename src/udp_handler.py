@@ -648,7 +648,7 @@ def run_udp(
                 timers['semantics'].toc(value=t_semantics_task) 
                 
                 # Send tracking data to Kafka or append to CSV results
-                send_target_to_kafka_or_csv(t, i, CAM_ID, frameId, ts_ms, use_kafka, 
+                send_target_to_kafka_or_csv(t, i, CAM_ID, frameId, ts_reception, use_kafka, 
                                           kafka_producer, kafka_topic, results)
 
 
