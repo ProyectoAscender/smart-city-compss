@@ -16,6 +16,8 @@ class BaseTrack(object):
     track_id = 0
     is_activated = False
     state = TrackState.New
+    distanceAccum = 0
+    timeAccum = 0
 
     history = OrderedDict()
     features = []
