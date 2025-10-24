@@ -29,7 +29,7 @@ from kafkaComm.kafka_schema_registry import (
     create_schema_registry_client,
     create_kafka_producer,
     send_tracking_data_to_kafka,
-    send_target_to_kafka_or_csv
+    send_target_to_kafka
 )
 ####################################################################
 ###################################################################
@@ -387,106 +387,68 @@ def run_udp(
         timers['udp_decoding'].toc()
 
         timers['track'].tic()
-        # ## TRACKING
-         
+        ## TRACKING
+        ## Bug REPORT  -   Tracker, according to the log analysis, seems to be the sole responsible for loosing 
+        ##                 Real Time processing over time.
+        ##                 ByteTrack/StrongSORT-like trackers expect update every frame to age/prune tracks 
+        ##                 (track_buffer, timeouts, merges, duplicate removal, etc.). Skipping it lets 
+        ##                 tracked_stracks/lost_stracks quietly balloon, making each subsequent update slower and 
+        ##                 the downstream processing loop heavier.
+        ##                 Possibly issues caused by:
+        # Frames con detecciones
+        if isinstance(det, np.ndarray) and det.size > 0:
+            # Update tracker
+            online_targets = tracker_list[0].update(det, img_info, test_size)
 
-        ### Bug REPORT  -   Tracker, according to the log analysis, seems to be the sole responsible for loosing 
-
-        ###                 Real Time processing over time. 
-
-        ###                 ByteTrack/StrongSORT-like trackers expect update every frame to age/prune tracks 
-
-        ###                 (track_buffer, timeouts, merges, duplicate removal, etc.). Skipping it lets 
-
-        ###                 tracked_stracks/lost_stracks quietly balloon, making each subsequent update slower and 
-
-        ###                 the downstream processing loop heavier.
-
-        ###                 Possibly issues caused by:
-        # # Frames con detecciones
-        # if isinstance(det, np.ndarray) and det.size > 0:
-        #     # Update tracker
-        #     online_targets = tracker_list[0].update(det, img_info, test_size)
-
-        # # Frames sin detecciones. Actualizamos el tracker
-        # else:
-        #     tracker_list[0].frame_id += 1  # Avanzamos el frame_id manualmente
-        #     for track in tracker_list[0].tracked_stracks:
-        #         track.frames_since_update += 1  # Incrementamos contador de no actualización
-        #     online_targets = []            
-        #     #print('Actualizando tracker sin nuevas detecciones ')
-        ###                 Attempt to fix it 1:
-        ###                 det gets created already with the correct shape, only fills if boxes okay
-        
-        online_targets = tracker_list[0].update(det, img_info, test_size)
+        # Frames sin detecciones. Actualizamos el tracker
+        else:
+            tracker_list[0].frame_id += 1  # Avanzamos el frame_id manualmente
+            for track in tracker_list[0].tracked_stracks:
+                track.frames_since_update += 1  # Incrementamos contador de tiempo sin actualización
+            online_targets = []            
 
         # Collect and write results if online targets is not empty
         online_tlwhs = []
         online_ids = []
         online_scores = []
         if (get_speed): online_speeds = []
-        # Discard non-consolidated data
 
+        # Discard non-consolidated data
         online_targets = [t for t in online_targets if t.tlwh[2] * t.tlwh[3] > min_box_area]
+
         # Add track info to results 
         frame_results = []
         for i, t in enumerate(online_targets):
 
-            # tlwh = t.tlwh
-
-            # tid = t.track_id
-
             online_tlwhs.append(t.tlwh)
-
             online_ids.append(t.track_id)
-
             online_scores.append(t.score)
-
             
             line = (f"\n{CAM_ID},{frameId},{ts},{ts_reception},{t.track_id}," 
                     f"{t.tlwh[0]:.2f},{t.tlwh[1]:.2f},{t.tlwh[2]:.2f},{t.tlwh[3]:.2f},"
                     f"{t.score:.2f},{t.cl}")
 
             frame_results.append(line)
-
             results.append(line)  # results global, si lo quieres
-
-            # online_flags(t.event.alertFlag)
-
-            
 
         timers['track'].toc()
         
         # After results append, if "only_results" we dont need to process anything else of this frame
-        ##########################################################################################
-        #ADD option to only send results to Kafka or CSV, without any other processing
-        #########################################################################################
-        print(f"[UDP DEBUG] Checking only_results condition - only_results: {only_results} (type: {type(only_results)})")
         if (only_results): 
             timers['saving_results'].tic()
             
             print(f"\t -> Running on ONLY_RESULTS mode - only_results={only_results}")
-            # FRAME-BASED FLUSH MANAGEMENT
-            # Implement intelligent flushing strategy for optimal performance vs latency
-            if use_kafka and kafka_producer:
-                # In only_results mode, we don't have valid UTM data (would be 0.0)
-                # So we skip Kafka and only use CSV mode for basic tracking data
-                print(f"{CAM_ID} - Skipping Kafka in only_results mode - no valid UTM data available")
-                # Convert to CSV mode for only_results
-                for i, t in enumerate(online_targets):
-                    results.append(
-                        f"{CAM_ID},{frameId},{ts_reception},{t.track_id},{t.tlwh[0]:.2f},{t.tlwh[1]:.2f},{t.tlwh[2]:.2f},{t.tlwh[3]:.2f},{t.score:.2f},{getattr(t, 'cl', 0)}\n"
-                    )
-            else:
-                # CSV mode: accumulate results
-                for i, t in enumerate(online_targets):
-                    results.append(
-                        f"{CAM_ID},{frameId},{ts},{t.track_id},{t.tlwh[0]:.2f},{t.tlwh[1]:.2f},{t.tlwh[2]:.2f},{t.tlwh[3]:.2f},{t.score:.2f},{getattr(t, 'cl', 0)}\n"
-                    )
-            
+            # We've checked every 300 frames if hour has changed.
+            if (frame_idx % 300 == 0 and new_hour != current_hour):
+                utils.save_results(results, exp_dir, CAM_ID)
+                current_hour = new_hour
+                results = []
+                print(f"{CAM_ID} - Saving every 300 frames")
+            else: 
+                print(f"{CAM_ID} - Acabando {frame_idx} - {frameId}")
+                continue # jumping next frame
             timers['saving_results'].toc()
-            print(f"{CAM_ID} - Acabando {frame_idx} - {frameId}")
-            continue
+
         
 
         #Calcualte speed and semantics if needed
@@ -496,179 +458,72 @@ def run_udp(
         futures = []
         for t in online_targets:
             tModified , alertInfo_thread, online_speeds_thread,  t_speed_thread, t_semantics_thread = processing.process_tracklets(t, view_transformer, timers, get_semantic, 
-
                                                             get_speed , alerts , polys, ts, frameId) 
-
             futures.append((tModified , alertInfo_thread, online_speeds_thread,  t_speed_thread, t_semantics_thread))
-        # Discard non-consolidated data
-
         
+        # Discard non-consolidated data
         for i, future in enumerate(futures):
             try:
-
                 # print('XX compss_wait_on...')
-
                 t = online_targets[i] = compss_wait_on(future[0])
-
                 alertInfo_task = compss_wait_on(future[1])
-
                 online_speeds_task = compss_wait_on(future[2])
-
                 t_speed_task = compss_wait_on(future[3])
-
                 t_semantics_task = compss_wait_on(future[4])
-
-
 
                 # print(f'XX Task output: {online_targets[i]} {alertInfo_task} {online_speeds_task} {t_speed_task} {t_semantics_task}')
 
                 if(alerts):
-
                     alertInfo.append(alertInfo_task)
-
                 if(get_speed):
-
                     online_speeds.append(online_speeds_task)
 
-                all_results.append(
 
-                        f"{frame_results[i]},{online_targets[i].location[0]},{online_targets[i].location[1]},"
-
-                        f"{online_targets[i].median_speed:.2f},{online_targets[i].event.polyType}"
-
-                    )
                 
-                timers['speed'].toc(value=t_speed_task)
 
-                timers['semantics'].toc(value=t_semantics_task) 
                 
                 # Send tracking data to Kafka or append to CSV results
-                send_target_to_kafka_or_csv(t, i, CAM_ID, frameId, ts_reception, use_kafka, 
-                                          kafka_producer, kafka_topic, results)
+                if (use_kafka and kafka_producer):
+                    send_target_to_kafka(t, i, CAM_ID, frameId, ts_reception, use_kafka, 
+                                            kafka_producer, kafka_topic, results)
 
+                    # Periodic flush management
+                    # AUTOMATIC FLUSH FOR LOW-LATENCY DELIVERY
+                    # Optional immediate flush after sending data for ultra-low latency scenarios
+                    # Periodic flush (frame- or time-based, or hour change)
+                    if kafka_flush_interval > 0 and frame_idx % kafka_flush_interval == 0:
+                        kafka_producer.flush()
+                        print(f"{CAM_ID} - Kafka producer flushed (frame {frame_idx})")
+                    elif kafka_auto_flush and (time.time() - last_flush_time > FLUSH_EVERY_SECS):
+                        kafka_producer.flush()
+                        last_flush_time = time.time()
+                        print(f"{CAM_ID} - Kafka producer auto-flushed")
 
+                else:
+                    # CSV mode
+                    all_results.append(
+                            f"{frame_results[i]},{online_targets[i].location[0]},{online_targets[i].location[1]},"
+                            f"{online_targets[i].median_speed:.2f},{online_targets[i].event.polyType}"
+                        )
+                timers['speed'].toc(value=t_speed_task)
+                timers['semantics'].toc(value=t_semantics_task) 
 
             except Exception as e:
-
                 print(f"{CAM_ID} - Error receiving compss data: {e}")
-
                 sys.exit(1)
                 
         timers['processing'].toc()
-        #####################################################################################
-        # BUILD AND SEND TRACKING DATA TO KAFKA
-        # 
-        # IMPORTANT: Kafka processing is placed OUTSIDE the COMPSs futures loop for the following reasons:
-        # 
-        # 1. AVOID DUPLICATE SENDS: Previously, Kafka processing was inside the COMPSs loop,
-        #    causing the same tracking data to be sent multiple times to Kafka (once per future).
-        # 
-        # 2. CORRECT TIMING: We need to wait until ALL COMPSs futures complete and populate
-        #    the online_targets with location, speed, and event data before sending to Kafka.
-        # 
-        # 3. VARIABLE CONFLICTS: The inner loop used the same variable 'i' as the outer loop,
-        #    causing confusion and potential bugs. Now using 'j' for clear separation.
-        # 
-        # 4. CLEAN ARCHITECTURE: Separates COMPSs processing (compute-intensive) from
-        #    Kafka processing (I/O-intensive) for better code maintainability.
-        # 
-        # Process each detected object and send to Kafka or store for CSV
-        #########################################################################################
-        # for j, t in enumerate(online_targets):
-        #     #####################################################################
-        #     # Extract UTM values from track object (proper source)
-        #     print(f"{CAM_ID} - Debug: Processing target {j}: {t}")
-        #     print(f"{CAM_ID} - Debug: t.location: {getattr(t, 'location', 'NO LOCATION ATTR')}")
-        #     print(f"{CAM_ID} - Debug: t.median_speed: {getattr(t, 'median_speed', 'NO SPEED ATTR')}")
-        #     print(f"{CAM_ID} - Debug: t.event: {getattr(t, 'event', 'NO EVENT ATTR')}")
-            
-        #     utm_x_m = float(t.location[0])
-        #     utm_y_m = float(t.location[1])
-        #     speed_kmh = float(getattr(t, "median_speed", 0.0))
-        #     polygon_type = getattr(getattr(t, "event", None), "polyType", None)
-            
-        #     print(f"{CAM_ID} - Debug: Extracted - utm_x_m: {utm_x_m}, utm_y_m: {utm_y_m}, speed_kmh: {speed_kmh}, polygon_type: {polygon_type}")
-        #     #########################################################################
-        #     # Only send to Kafka if UTM values are valid (not 0 and not None)
-        #     utm_valid = utm_x_m != 0.0 and utm_y_m != 0.0 and utm_x_m is not None and utm_y_m is not None
-        #     if use_kafka and kafka_producer and utm_valid:
-        #         # Build Kafka message data
-        #         data = {
-        #             "cam_id": str(CAM_ID),
-        #             "frame_id": int(frameId),
-        #             "ts": int(ts_ms),  # Use converted timestamp
-        #             "track_id": int(t.track_id),
-        #             "coord_box1": float(t.tlwh[0]),
-        #             "coord_box2": float(t.tlwh[1]),
-        #             "coord_box3": float(t.tlwh[2]),
-        #             "coord_box4": float(t.tlwh[3]),
-        #             "box_score": float(t.score),
-        #             "class_box": int(getattr(t, 'cl', 0)),
-        #             "utm": {
-        #                 "utm_x_m": utm_x_m,
-        #                 "utm_y_m": utm_y_m,
-        #                 "speed_kmh": speed_kmh,
-        #                 "polygon_type": polygon_type
-        #             }
-        #         }
-                
-        #         # Send to Kafka
-        #         success = send_tracking_data_to_kafka(kafka_producer, kafka_topic, data, CAM_ID)
-        #         if not success:
-        #             print(f"{CAM_ID} - Failed to send tracking data to Kafka")
-        #         else:
-        #             print(f"{CAM_ID} - Successfully sent tracking data to Kafka (UTM: {utm_x_m}, {utm_y_m})")
-        #     elif use_kafka and kafka_producer and not utm_valid:
-        #         print(f"{CAM_ID} - Skipping Kafka send - invalid UTM values (utm_x_m: {utm_x_m}, utm_y_m: {utm_y_m}, track_id: {t.track_id})")
-        #     else:
-        #         # CSV mode
-        #         results.append(
-        #             f"{CAM_ID},{frameId},{ts},{t.track_id},{t.tlwh[0]:.2f},{t.tlwh[1]:.2f},{t.tlwh[2]:.2f},{t.tlwh[3]:.2f},{t.score:.2f},{getattr(t, 'cl', 0)}\n"
-        #         )
+       
 
-        
-        # AUTOMATIC FLUSH FOR LOW-LATENCY DELIVERY
-        # Optional immediate flush after sending data for ultra-low latency scenarios
-        # Periodic flush (frame- or time-based, or hour change)
-        if use_kafka and kafka_producer:
-            # Periodic flush management
-            if kafka_flush_interval > 0 and frame_idx % kafka_flush_interval == 0:
-                kafka_producer.flush()
-                print(f"{CAM_ID} - Kafka producer flushed (frame {frame_idx})")
-            elif kafka_auto_flush and (time.time() - last_flush_time > FLUSH_EVERY_SECS):
-                kafka_producer.flush()
-                last_flush_time = time.time()
-                print(f"{CAM_ID} - Kafka producer auto-flushed")
             
-        # Discard non-consolidated data
+            
 
-        online_targets = [t for t in online_targets if t.tlwh[2] * t.tlwh[3] > min_box_area]
-        # # Add track info to results 
-        # for i, t in enumerate(online_targets):
-        #     # tlwh = t.tlwh
-        #     # tid = t.track_id 
-        #         online_tlwhs.append(t.tlwh)
-        #         online_ids.append(t.track_id)
-        #         online_scores.append(t.score)
-        #         # online_flags(t.event.alertFlag)
-        #         # results.append(
-        #         #     f"{CAM_ID},{frameId},{ts},{t.track_id},{t.tlwh[0]:.2f},{t.tlwh[1]:.2f},{t.tlwh[2]:.2f},{t.tlwh[3]:.2f},{t.score:.2f},{t.cl}\n"
-        #         # )
-        #     else:
-        #         print("Tracklet discarded because box size")
-###############################################################################################
-##########################################################################################3#####
         timers['video'].tic()
 
         # Plotting video
         if save_plot or view_plot:
             online_im = plot_tracking(frame, online_targets, frame_id = frameId, fps = FPS, get_semantic = get_semantic)
-            # online_im = plot_tracking(
 
-            #     frame, online_tlwhs, online_ids, online_flags,frame_id=frameId, fps= FPS,
-
-            # )
-            
         # Save video
         if save_plot:
             if current_hour % 2 == 0:
@@ -698,58 +553,39 @@ def run_udp(
             skiped_frames = frameId - frame_idx
             print(f"{CAM_ID} - \tSmartCity skipped one frame!! Total skipped frames: {frameId - frame_idx}")
 
-            # break
-            for name, timer in timers.items():
-
-                print(f'{CAM_ID} - Avg. {name.capitalize()} Time: {timer.average_time}')                
-
-                timer.clear()
-
-            timers['total'].tic()
-
-        timers['total'].toc() 
-        
         if (print_time and frame_idx % 30 == 0):
             print(f"{CAM_ID} - Average FPS: {fps_est:.2f}, Frame {frame_idx}")
+            timers['total'].toc() 
+
+            # break
+            for name, timer in timers.items():
+                print(f'{CAM_ID} - Avg. {name.capitalize()} Time: {timer.average_time}')                
+                timer.clear()
+
+            # timers['total'].tic() ???????????????????????????
+
+
+        
             
+
         # We check again and save results with speed
         if (frame_idx % 300 == 0 and new_hour != current_hour):
-              
-
             timers['saving_results'].tic()
 
-            
-
-            
-
             folder_path = utils.save_results(all_results, exp_dir, CAM_ID)
-
             all_results , results = [] , []
-
             print(f"{CAM_ID} - Saving every 300 frames")
-
-            
-
             video_path = os.path.join(folder_path, VIDEO_OUT_NAME)
 
+            # Two different writers to avoid re-initialization delay
             if save_plot:
-
-                
-
                 if current_hour % 2 == 0:
-
                     vid_writer.release()
-
                     vid_writer2 = cv2.VideoWriter(video_path, fourcc, FPS, (CAM_WIDTH, CAM_HEIGHT))
-
                     print(f"{CAM_ID} - New video file started: {video_path}, vid_writer2")
-
                 else:
-
                     vid_writer2.release()
-
                     vid_writer = cv2.VideoWriter(video_path, fourcc, FPS, (CAM_WIDTH, CAM_HEIGHT))
-
                     print(f"{CAM_ID} - New video file started: {video_path}, vid_writer")
             current_hour = new_hour
             timers['saving_results'].toc()

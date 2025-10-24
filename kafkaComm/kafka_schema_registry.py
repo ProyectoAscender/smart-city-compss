@@ -336,7 +336,7 @@ def send_tracking_data_to_kafka(producer, topic, data, cam_id):
         return False
 
 #########################################################################################
-def send_target_to_kafka_or_csv(t, i, CAM_ID, frameId, ts_reception, use_kafka, kafka_producer, 
+def send_target_to_kafka(t, i, CAM_ID, frameId, ts_reception, use_kafka, kafka_producer, 
                                 kafka_topic, results):
     """
     Send tracking target data to Kafka or append to CSV results.
@@ -346,7 +346,7 @@ def send_target_to_kafka_or_csv(t, i, CAM_ID, frameId, ts_reception, use_kafka, 
         i: Target index for debug logging
         CAM_ID: Camera identifier
         frameId: Frame identifier
-        ts_reception: Timestamp as datetime object
+        ts_reception: Timestamp is an integer
         use_kafka: Boolean flag for Kafka usage
         kafka_producer: Kafka producer instance
         kafka_topic: Kafka topic name
@@ -376,7 +376,7 @@ def send_target_to_kafka_or_csv(t, i, CAM_ID, frameId, ts_reception, use_kafka, 
         data = {
             "cam_id": str(CAM_ID),
             "frame_id": int(frameId),
-            "ts": ts_reception.isoformat() + "Z",  # Use ISO format with Z
+            "ts": int(ts_reception),  # Use ISO format with Z
             "track_id": int(t.track_id),
             "coord_box1": float(t.tlwh[0]),
             "coord_box2": float(t.tlwh[1]),
@@ -403,12 +403,6 @@ def send_target_to_kafka_or_csv(t, i, CAM_ID, frameId, ts_reception, use_kafka, 
             return True
     elif use_kafka and kafka_producer and not utm_valid:
         print(f"{CAM_ID} - Skipping Kafka send - invalid UTM values (utm_x_m: {utm_x_m}, utm_y_m: {utm_y_m}, track_id: {t.track_id})")
-        return False
-    else:
-        # CSV mode
-        results.append(
-            f"{CAM_ID},{frameId},{ts_reception.isoformat() + 'Z'},{t.track_id},{t.tlwh[0]:.2f},{t.tlwh[1]:.2f},{t.tlwh[2]:.2f},{t.tlwh[3]:.2f},{t.score:.2f},{getattr(t, 'cl', 0)}\n"
-        )
         return False
 
 #########################################################################################
