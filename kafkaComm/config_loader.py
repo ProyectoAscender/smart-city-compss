@@ -46,7 +46,7 @@ def get_kafka_config_from_env():
         "schema_registry_ssl_key_location": os.getenv("SCHEMA_REGISTRY_SSL_KEY_LOCATION"),
 
         # Avro schema settings
-        "avro_schema_subject": os.getenv("AVRO_SCHEMA_SUBJECT", "smartcity-tracking-value"),
+        # "avro_schema_subject": os.getenv("AVRO_SCHEMA_SUBJECT", "smartcity-tracking-value"),
         "use_schema_registry": os.getenv("USE_SCHEMA_REGISTRY", "false").lower(),
         
         # Frame-based flush configuration for performance tuning
@@ -95,7 +95,7 @@ def load_kafka_config(opt):
         "schema_registry_ssl_ca_location",
         "schema_registry_ssl_cert_location",
         "schema_registry_ssl_key_location",
-        "avro_schema_subject",
+        # "avro_schema_subject",
         "use_schema_registry",
         "kafka_flush_interval",
         "kafka_auto_flush",
