@@ -1,0 +1,34 @@
+{
+  "namespace": "alert.avro",
+  "type": "record",
+  "name": "AlertData",
+  "fields": [
+    { "name": "cam_id", "type": "string", "doc": "Camera ID (keep as string to preserve leading zeros, e.g., '0003')" },
+    { "name": "frame_id", "type": "int" },
+    { "name": "ts","type": "long", "doc": "Producer timestamp in milliseconds" },
+    { "name": "track_id", "type": "int" },
+
+    { "name": "coord_box1", "type": "double", "doc": "Bounding box coordinate 1" },
+    { "name": "coord_box2", "type": "double", "doc": "Bounding box coordinate 2" },
+    { "name": "coord_box3", "type": "double", "doc": "Bounding box coordinate 3" },
+    { "name": "coord_box4", "type": "double", "doc": "Bounding box coordinate 4" },
+
+    { "name": "box_score", "type": "float" },
+    { "name": "class_box", "type": "int" },
+
+    {
+      "name": "utm",
+      "type": {
+        "type": "record",
+        "name": "UtmInfo",
+        "fields": [
+          { "name": "utm_x_m", "type": "double" },
+          { "name": "utm_y_m", "type": "double" },
+          { "name": "speed_kmh", "type": "float" },
+          { "name": "polygon_type", "type": ["null", "string"], "doc": "Semantic polygon type (road, tramway, bikeLane, etc.)" }
+        ]
+      },
+      "doc": "(UTM_x, UTM_y, velocidad, tipo_poligono)"
+    }
+  ]
+}
