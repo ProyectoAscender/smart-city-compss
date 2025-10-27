@@ -18,12 +18,14 @@ except ImportError:
 
 
 # ---------- Load & cache Avro schema ----------
-def load_schema_from_file(filepath="kafkaComm/smartcity-tracking.avsc"):
+def load_schema_from_file(filepath="smartcity-tracking.avsc"):
     with open(filepath, "r") as f:
         # Return canonical JSON string (sorted keys helps deterministic compares)
         return json.dumps(json.load(f), sort_keys=True)
 
-TRACKING_AVRO_SCHEMA = load_schema_from_file()
+filepath = os.path.join(os.path.dirname(__file__), "smartcity-tracking.avsc")
+print(f"Schema path: {filepath}")
+TRACKING_AVRO_SCHEMA = load_schema_from_file(filepath)
 
 _PARSED_TRACKING_SCHEMA = None
 def get_parsed_schema():

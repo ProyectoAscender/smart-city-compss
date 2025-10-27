@@ -5,7 +5,7 @@
   "fields": [
     { "name": "cam_id", "type": "string", "doc": "Camera ID (keep as string to preserve leading zeros, e.g., '0003')" },
     { "name": "frame_id", "type": "int" },
-    { "name": "ts","type": "long", "doc": "Producer timestamp in milliseconds" },
+    { "name": "ts", "type": { "type": "long", "logicalType": "timestamp-millis" }, "doc": "Producer timestamp-millis" },
     { "name": "track_id", "type": "int" },
 
     { "name": "coord_box1", "type": "double", "doc": "Bounding box coordinate 1" },
