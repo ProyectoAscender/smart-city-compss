@@ -207,27 +207,9 @@ def send_tracking_data_to_kafka(producer, topic, data, cam_id):
         print(f"[Kafka] Error sending data to topic '{topic}': {e}")
         return False
 
-#########################################################################################
+
 def send_target_to_kafka(t, i, CAM_ID, frameId, ts_reception, use_kafka, kafka_producer, 
-                                kafka_topic, results):
-    """
-    Send tracking target data to Kafka or append to CSV results.
-    
-    Args:
-        t: The tracklet object
-        i: Target index for debug logging
-        CAM_ID: Camera identifier
-        frameId: Frame identifier
-        ts_reception: Timestamp is an integer
-        use_kafka: Boolean flag for Kafka usage
-        kafka_producer: Kafka producer instance
-        kafka_topic: Kafka topic name
-        results: List to append CSV results
-    
-    Returns:
-        bool: True if data was sent to Kafka successfully, False otherwise
-    """
-    # Extract UTM values from track object (proper source)
+                         kafka_topic, results):
     print(f"{CAM_ID} - Debug: Processing target {i}: {t}")
     print(f"{CAM_ID} - Debug: t.location: {getattr(t, 'location', 'NO LOCATION ATTR')}")
     print(f"{CAM_ID} - Debug: t.median_speed: {getattr(t, 'median_speed', 'NO SPEED ATTR')}")
@@ -244,7 +226,7 @@ def send_target_to_kafka(t, i, CAM_ID, frameId, ts_reception, use_kafka, kafka_p
         data = {
             "cam_id": str(CAM_ID),
             "frame_id": int(frameId),
-            "ts": int(ts_reception),
+            "ts": int(ts_reception),  # ⚠️ Asegúrate que coincide con tu .avsc (string vs long)
             "track_id": int(t.track_id),
             "coord_box1": float(t.tlwh[0]),
             "coord_box2": float(t.tlwh[1]),
@@ -264,9 +246,4 @@ def send_target_to_kafka(t, i, CAM_ID, frameId, ts_reception, use_kafka, kafka_p
         print(f"{CAM_ID} - Skipping Kafka send - invalid UTM values "
               f"(utm_x_m: {utm_x_m}, utm_y_m: {utm_y_m}, track_id: {t.track_id})")
         return False
-    else:
-        # CSV mode
-        results.append(
-            f"{CAM_ID},{frameId},{ts_reception.isoformat() + 'Z'},{t.track_id},{t.tlwh[0]:.2f},{t.tlwh[1]:.2f},{t.tlwh[2]:.2f},{t.tlwh[3]:.2f},{t.score:.2f},{getattr(t, 'cl', 0)}\n"
-        )
-        return False
+    return False
