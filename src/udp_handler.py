@@ -28,7 +28,6 @@ from pycompss.api.api import compss_wait_on
 from kafkaComm.kafka_schema_registry import (
     create_schema_registry_client,
     create_kafka_producer,
-    send_tracking_data_to_kafka,
     send_target_to_kafka
 )
 ####################################################################
@@ -107,7 +106,7 @@ def run_udp(
     schema_registry_ssl_ca_location = kafka_config.get('schema_registry_ssl_ca_location')
     schema_registry_ssl_cert_location = kafka_config.get('schema_registry_ssl_cert_location')
     schema_registry_ssl_key_location = kafka_config.get('schema_registry_ssl_key_location')
-    # avro_schema_subject = kafka_config.get('avro_schema_subject', 'smartcity-tracking-value')
+    avro_schema_subject = kafka_config.get('avro_schema_subject', 'smartcity-tracking-value')
     use_schema_registry = kafka_config.get('use_schema_registry', False)
     
     # Performance settings
@@ -159,7 +158,7 @@ def run_udp(
             kafka_ssl_certfile=kafka_ssl_certfile,
             kafka_ssl_keyfile=kafka_ssl_keyfile,
             schema_registry_client=schema_registry_client,
-            # avro_schema_subject=avro_schema_subject,
+            avro_schema_subject=avro_schema_subject,
             use_schema_registry=use_schema_registry,
         )
 

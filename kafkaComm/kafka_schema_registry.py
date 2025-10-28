@@ -16,7 +16,12 @@ except ImportError:
     _CONFLUENT_KAFKA_INSTALLED = False
     print("[Warning] confluent-kafka not available, using basic Avro serialization")
 
+SCHEMA_REGISTRY_AVAILABLE = _CONFLUENT_KAFKA_INSTALLED and os.getenv("SCHEMA_REGISTRY_AVAILABLE", "false").lower() == "true"
 
+if SCHEMA_REGISTRY_AVAILABLE:
+    print("[Schema Registry] Confluent Kafka Schema Registry support enabled")
+else:
+    print("[Schema Registry] Using basic Avro serialization (Schema Registry disabled or unavailable)")
 # ---------- Load & cache Avro schema ----------
 def load_schema_from_file(filepath="smartcity-tracking.avsc"):
     with open(filepath, "r") as f:
@@ -29,26 +34,43 @@ TRACKING_AVRO_SCHEMA = load_schema_from_file(filepath)
 
 _PARSED_TRACKING_SCHEMA = None
 def get_parsed_schema():
+    """Get the parsed Avro schema, parsing it if not already done."""
     global _PARSED_TRACKING_SCHEMA
     if _PARSED_TRACKING_SCHEMA is None:
         _PARSED_TRACKING_SCHEMA = avro.schema.parse(TRACKING_AVRO_SCHEMA)
     return _PARSED_TRACKING_SCHEMA
 
-
-# ---------- Schema Registry client ----------
 def create_schema_registry_client(schema_registry_url, username=None, password=None,
                                   ssl_ca_location=None, ssl_cert_location=None, ssl_key_location=None):
     """
-    Devuelve un SchemaRegistryClient si hay URL; en caso contrario, None.
-    No dependemos de variables de entorno: si hay cliente, lo usamos.
+    Create a Schema Registry client for centralized Avro schema management.
+    
+    This enables enterprise-grade schema evolution and compatibility checking.
+    Falls back gracefully if Schema Registry is not available.
+    
+    Args:
+        schema_registry_url (str): Schema Registry endpoint URL
+        username (str, optional): Basic auth username
+        password (str, optional): Basic auth password
+        ssl_ca_location (str, optional): Path to CA certificate file
+        ssl_cert_location (str, optional): Path to client certificate file
+        ssl_key_location (str, optional): Path to client private key file
+    
+    Returns:
+        SchemaRegistryClient or None: Configured client or None if unavailable
     """
-    if not _CONFLUENT_KAFKA_INSTALLED or not schema_registry_url:
-        print("[Schema Registry] Disabled (missing client or URL). Falling back to basic Avro.")
+    if not SCHEMA_REGISTRY_AVAILABLE or not schema_registry_url:
+        print("[Schema Registry] Not available or URL missing; using basic Avro serialization")
         return None
 
     conf = {"url": schema_registry_url}
+    
+    # Configure authentication if provided
     if username and password:
         conf["basic.auth.user.info"] = f"{username}:{password}"
+        print(f"[Schema Registry] Using basic auth for user: {username}")
+    
+    # Configure SSL if certificates are provided
     if ssl_ca_location:
         conf["ssl.ca.location"] = ssl_ca_location
     if ssl_cert_location:
@@ -56,61 +78,70 @@ def create_schema_registry_client(schema_registry_url, username=None, password=N
     if ssl_key_location:
         conf["ssl.key.location"] = ssl_key_location
 
-    try:
-        return SchemaRegistryClient(conf)
-    except Exception as e:
-        print(f"[Schema Registry] Client init failed: {e}")
-        return None
+    return SchemaRegistryClient(conf)
 
-
-# ---------- Robust register/get (unifica subject a <topic>-value) ----------
 def get_or_register_schema(schema_registry_client, subject, schema_str):
     """
-    - Reutiliza versión si el schema es idéntico (lookup).
-    - Testea compatibilidad con la última versión antes de registrar.
-    - Registra solo si hace falta.
-    Devuelve (schema_id, schema_str) o (None, None) si no hay SR.
+    Retrieve existing schema or register a new one in Schema Registry.
+    
+    This function handles schema versioning and ensures compatibility
+    across different application instances.
+    
+    Args:
+        schema_registry_client: Schema Registry client instance
+        subject (str): Schema subject name (e.g., 'smartcity-tracking-value')
+        schema_str (str): Avro schema definition as JSON string
+    
+    Returns:
+        tuple: (schema_id, schema_str) or (None, None) if client unavailable
     """
     if not schema_registry_client:
-        return None, None
+        return None, None  # (schema_id, schema_str)
 
-    new_schema = Schema(schema_str, "AVRO")
-
-    # 1) ¿Ya existe exactamente este schema bajo este subject?
     try:
-        looked_up = schema_registry_client.lookup_schema(subject, new_schema)
-        if looked_up and looked_up.schema_id is not None:
-            return looked_up.schema_id, looked_up.schema.schema_str
+        # Try to get existing schema version
+        v = schema_registry_client.get_latest_version(subject)
+        print(f"[Schema Registry] Using existing subject={subject} version={v.version}")
+        return v.schema_id, v.schema.schema_str
     except Exception:
-        pass  # subject inexistente o lookup no disponible → seguimos
+        # Schema not found  register new one
+        confluent_schema = Schema(schema_str, "AVRO")
+        schema_id = schema_registry_client.register_schema(subject, confluent_schema)
+        print(f"[Schema Registry] Registered subject={subject} id={schema_id}")
+        return schema_id, schema_str
 
-    # 2) Si hay última versión, probamos compatibilidad BACKWARD
-    try:
-        latest = schema_registry_client.get_latest_version(subject)
-        compatible = schema_registry_client.test_compatibility(subject, latest.version, new_schema)
-        if not compatible:
-            raise ValueError(
-                f"[Schema Registry] Incompatible new schema vs latest v{latest.version} for subject '{subject}'."
-            )
-    except Exception:
-        # subject nuevo o sin versiones → OK registrar
-        pass
-
-    # 3) Registrar nueva versión
-    schema_id = schema_registry_client.register_schema(subject, new_schema)
-    return schema_id, schema_str
-
-
-# ---------- Serializers ----------
 def schema_registry_serializer(data, topic_name, avro_serializer):
+    """
+    Serialize data using Schema Registry with fallback to basic Avro.
+    
+    Args:
+        data: Data to serialize
+        topic_name: Kafka topic name for context
+        avro_serializer: AvroSerializer instance
+        
+    Returns:
+        bytes: Serialized data
+    """
     ctx = SerializationContext(topic_name, MessageField.VALUE)
     try:
-        return avro_serializer(data, ctx)  # bytes (Confluent wire format)
+        return avro_serializer(data, ctx)  # returns bytes
     except Exception as e:
         print(f"[Schema Registry] Serialization error: {e}; falling back to basic Avro")
         return avro_serialize(data)
 
 def avro_serialize(data):
+    """
+    Serialize data using basic Avro format (no Schema Registry).
+    
+    This function provides fallback serialization when Schema Registry
+    is not available or configured. Uses the pre-parsed schema for efficiency.
+    
+    Args:
+        data (dict): Data dictionary matching the Avro schema
+    
+    Returns:
+        bytes or None: Serialized Avro bytes or None on error
+    """
     try:
         schema = get_parsed_schema()
         writer = avro.io.DatumWriter(schema)
@@ -123,64 +154,92 @@ def avro_serialize(data):
         return None
 
 
-# ---------- Producer factory (unificado a <topic>-value) ----------
-def create_kafka_producer(topic_name, kafka_bootstrap_servers="localhost:9092",
-                          kafka_username=None, kafka_password=None,
-                          kafka_security_protocol="PLAINTEXT", kafka_sasl_mechanism="SCRAM-SHA-512",
+
+
+
+def create_kafka_producer(topic_name, kafka_bootstrap_servers="localhost:9092", kafka_username=None, kafka_password=None, 
+                          kafka_security_protocol="PLAINTEXT", kafka_sasl_mechanism="SCRAM-SHA-512", 
                           kafka_ssl_cafile=None, kafka_ssl_certfile=None, kafka_ssl_keyfile=None,
-                          schema_registry_client=None, use_schema_registry=False):
+                          schema_registry_client=None, avro_schema_subject=None, use_schema_registry=False):
     """
-    Unifica el subject a '<topic>-value' si se usa Schema Registry.
+    Create and configure a Kafka producer with Avro serialization support.
+    
+    This function creates a high-performance Kafka producer with support for:
+    - Schema Registry integration (enterprise)
+    - Basic Avro serialization (fallback)
+    - Multiple authentication methods (SASL, SSL)
+    - Performance optimization settings
+    
+    Args:
+        topic_name (str): Kafka topic name for context (required)
+        kafka_bootstrap_servers (str): Comma-separated list of Kafka brokers
+        kafka_username (str, optional): SASL username for authentication
+        kafka_password (str, optional): SASL password for authentication
+        kafka_security_protocol (str): Security protocol (PLAINTEXT, SASL_PLAINTEXT, SSL, SASL_SSL)
+        kafka_sasl_mechanism (str): SASL mechanism (SCRAM-SHA-512, PLAIN, etc.)
+        kafka_ssl_cafile (str, optional): Path to CA certificate file
+        kafka_ssl_certfile (str, optional): Path to client certificate file  
+        kafka_ssl_keyfile (str, optional): Path to client private key file
+        schema_registry_client: Schema Registry client for enterprise deployments
+        avro_schema_subject (str, optional): Schema subject name in Schema Registry
+        use_schema_registry (bool): Whether to use Schema Registry (True) or basic Avro (False)
+    
+    Returns:
+        KafkaProducer or None: Configured producer instance or None on failure
     """
     from kafka import KafkaProducer
+    
+    # Validate required parameters
     if not topic_name:
-        raise ValueError("topic_name is required")
+        raise ValueError("topic_name is required and cannot be None or empty")
+    
+    # Configuration logic:
+    # - If use_schema_registry=False: Use basic Avro serialization with TRACKING_AVRO_SCHEMA
+    # - If use_schema_registry=True: Use Schema Registry with avro_schema_subject (if available)
 
-    subject = f"{topic_name}-value"  # <-- Unificación aquí
-
+    # Base producer configuration optimized for real-time streaming
     producer_config = {
         "bootstrap_servers": kafka_bootstrap_servers,
         "key_serializer": (lambda x: x.encode("utf-8") if x else None),
-        "acks": "all",
-        "retries": 3,
-        "batch_size": 16384,
-        "linger_ms": 10,
-        "buffer_memory": 33554432,
+        "acks": "all",              # Wait for all replicas to acknowledge
+        "retries": 3,               # Retry failed sends
+        "batch_size": 16384,        # Batch size for better throughput
+        "linger_ms": 10,            # Wait time for batching
+        "buffer_memory": 33554432,  # Producer buffer memory
     }
 
-    use_sr = bool(schema_registry_client) and bool(use_schema_registry)
-
-    if use_sr:
-        # Registrar/obtener el schema bajo <topic>-value
-        _, schema_str = get_or_register_schema(schema_registry_client, subject, TRACKING_AVRO_SCHEMA)
+    # Configure serialization strategy based on use_schema_registry flag
+    if use_schema_registry and SCHEMA_REGISTRY_AVAILABLE and schema_registry_client:
+        # Enterprise mode: Use Schema Registry for centralized schema management
+        _, schema_str = get_or_register_schema(schema_registry_client, avro_schema_subject, TRACKING_AVRO_SCHEMA)
         if schema_str:
-            avro_serializer = AvroSerializer(
-                schema_registry_client,
-                schema_str,
-                conf={
-                    "auto.register.schemas": True,  # o False si quieres exigir existencia previa
-                    "normalize.schemas": True
-                    # NO pasar subject.name.strategy (por defecto TopicNameStrategy)
-                }
-            )
+            avro_serializer = AvroSerializer(schema_registry_client, schema_str)
             producer_config["value_serializer"] = lambda x: schema_registry_serializer(x, topic_name, avro_serializer)
-            print(f"[Kafka] Using Schema Registry with subject: {subject}")
+            print(f"[Kafka] Using Schema Registry with subject: {avro_schema_subject}")
         else:
-            print("[Kafka] SR unavailable during setup; using basic Avro")
-            producer_config["value_serializer"] = avro_serialize
+            # Schema Registry failed, fallback to basic Avro
+            producer_config["value_serializer"] = lambda x: avro_serialize(x)
+            print("[Kafka] Schema Registry lookup failed; using basic Avro with TRACKING_AVRO_SCHEMA")
     else:
-        producer_config["value_serializer"] = avro_serialize
-        if use_schema_registry and not schema_registry_client:
-            print("[Kafka] SR requested but no client provided; using basic Avro")
+        # Basic mode: Use standard Avro serialization with TRACKING_AVRO_SCHEMA
+        producer_config["value_serializer"] = lambda x: avro_serialize(x)
+        if use_schema_registry:
+            print("[Kafka] Schema Registry requested but not available; using basic Avro with TRACKING_AVRO_SCHEMA")
+        else:
+            print("[Kafka] Using basic Avro serialization with TRACKING_AVRO_SCHEMA")
 
-    # Seguridad
+    # Configure security settings based on protocol
     if kafka_security_protocol != "PLAINTEXT":
         producer_config["security_protocol"] = kafka_security_protocol
+        
+        # Configure SASL authentication if credentials provided
         if kafka_username and kafka_password:
             producer_config["sasl_mechanism"] = kafka_sasl_mechanism
             producer_config["sasl_plain_username"] = kafka_username
             producer_config["sasl_plain_password"] = kafka_password
-            print(f"[Kafka] Configuring SASL user: {kafka_username}")
+            print(f"[Kafka] Configuring SASL auth for user: {kafka_username}")
+        
+        # Configure SSL certificates if provided
         if kafka_ssl_cafile:
             producer_config["ssl_cafile"] = kafka_ssl_cafile
         if kafka_ssl_certfile:
@@ -190,45 +249,94 @@ def create_kafka_producer(topic_name, kafka_bootstrap_servers="localhost:9092",
 
     try:
         producer = KafkaProducer(**producer_config)
-        print(f"[Kafka] Producer created (protocol: {kafka_security_protocol})")
+        print(f"[Kafka] Producer created with security protocol: {kafka_security_protocol}")
         return producer
     except Exception as e:
         print(f"Error creating Kafka producer: {e}")
         return None
 
-
-
-# ---------- Senders ----------
 def send_tracking_data_to_kafka(producer, topic, data, cam_id):
+    """
+    Send tracking data to Kafka topic with proper partitioning.
+    
+    Uses camera ID and track ID as message key to ensure related messages
+    are sent to the same partition for ordered processing.
+    
+    Args:
+        producer: Kafka producer instance
+        topic (str): Kafka topic name
+        data (dict): Avro-serialized tracking data
+        cam_id (str): Camera identifier for partitioning
+    
+    Returns:
+        bool: True if successful, False otherwise
+    """
     try:
+        # # Validate timestamp value
+        # if 'ts' in data:
+        #     ts_val = data['ts']
+        #     if not isinstance(ts_val, int) or ts_val <= 0:
+        #         print(f"[Kafka] Warning: Invalid timestamp {ts_val}, using current time")
+        #         data['ts'] = int(time.time() * 1000)
+        
+        # # Validate polygon_type in utm field
+        # if 'utm' in data and 'polygon_type' in data['utm']:
+        #     polygon_val = data['utm']['polygon_type']
+        #     if polygon_val is not None and not isinstance(polygon_val, str):
+        #         print(f"[Kafka] Warning: Invalid polygon_type {polygon_val} (type: {type(polygon_val)}), converting to None")
+        #         data['utm']['polygon_type'] = None
+        
+        # Use cam_id + track_id as the message key for consistent partitioning
+        # This ensures all messages from the same track go to the same partition
         key = f"{cam_id}_{data['track_id']}"
         producer.send(topic, key=key, value=data)
-        print(f"[Kafka] Sent data to topic '{topic}' with key '{key}' for cam_id '{cam_id}'")
         return True
     except Exception as e:
-        print(f"[Kafka] Error sending data to topic '{topic}': {e}")
+        print(f"Error sending data to Kafka: {e}")
         return False
 
-
+#########################################################################################
 def send_target_to_kafka(t, i, CAM_ID, frameId, ts_reception, use_kafka, kafka_producer, 
-                         kafka_topic, results):
+                                kafka_topic, results):
+    """
+    Send tracking target data to Kafka or append to CSV results.
+    
+    Args:
+        t: The tracklet object
+        i: Target index for debug logging
+        CAM_ID: Camera identifier
+        frameId: Frame identifier
+        ts_reception: Timestamp is an integer
+        use_kafka: Boolean flag for Kafka usage
+        kafka_producer: Kafka producer instance
+        kafka_topic: Kafka topic name
+        results: List to append CSV results
+    
+    Returns:
+        bool: True if data was sent to Kafka successfully, False otherwise
+    """
+    # Extract UTM values from track object (proper source)
     print(f"{CAM_ID} - Debug: Processing target {i}: {t}")
     print(f"{CAM_ID} - Debug: t.location: {getattr(t, 'location', 'NO LOCATION ATTR')}")
     print(f"{CAM_ID} - Debug: t.median_speed: {getattr(t, 'median_speed', 'NO SPEED ATTR')}")
     print(f"{CAM_ID} - Debug: t.event: {getattr(t, 'event', 'NO EVENT ATTR')}")
-
+    
     utm_x_m = float(t.location[0])
     utm_y_m = float(t.location[1])
     speed_kmh = float(getattr(t, "median_speed", 0.0))
     polygon_type = getattr(getattr(t, "event", None), "polyType", None)
-
-    utm_valid = (utm_x_m is not None and utm_y_m is not None and utm_x_m != 0.0 and utm_y_m != 0.0)
-
+    
+    print(f"{CAM_ID} - Debug: Extracted - utm_x_m: {utm_x_m}, utm_y_m: {utm_y_m}, speed_kmh: {speed_kmh}, polygon_type: {polygon_type}")
+    
+    # Only send to Kafka if UTM values are valid (not 0 and not None)
+    utm_valid = utm_x_m != 0.0 and utm_y_m != 0.0 and utm_x_m is not None and utm_y_m is not None
+    
     if use_kafka and kafka_producer and utm_valid:
+        # Build Kafka message data
         data = {
             "cam_id": str(CAM_ID),
             "frame_id": int(frameId),
-            "ts": int(ts_reception),  # ⚠️ Asegúrate que coincide con tu .avsc (string vs long)
+            "ts": int(ts_reception),  # Use ISO format with Z
             "track_id": int(t.track_id),
             "coord_box1": float(t.tlwh[0]),
             "coord_box2": float(t.tlwh[1]),
@@ -243,9 +351,16 @@ def send_target_to_kafka(t, i, CAM_ID, frameId, ts_reception, use_kafka, kafka_p
                 "polygon_type": polygon_type
             }
         }
-        return send_tracking_data_to_kafka(kafka_producer, kafka_topic, data, CAM_ID)
+        # Debug: verify types before sending
+        print(f"{CAM_ID} - Data types - ts: {type(data['ts'])} = {data['ts']}")
+        # Send to Kafka
+        success = send_tracking_data_to_kafka(kafka_producer, kafka_topic, data, CAM_ID)
+        if not success:
+            print(f"{CAM_ID} - Failed to send tracking data to Kafka")
+            return False
+        else:
+            print(f"{CAM_ID} - Successfully sent tracking data to Kafka (UTM: {utm_x_m}, {utm_y_m})")
+            return True
     elif use_kafka and kafka_producer and not utm_valid:
-        print(f"{CAM_ID} - Skipping Kafka send - invalid UTM values "
-              f"(utm_x_m: {utm_x_m}, utm_y_m: {utm_y_m}, track_id: {t.track_id})")
+        print(f"{CAM_ID} - Skipping Kafka send - invalid UTM values (utm_x_m: {utm_x_m}, utm_y_m: {utm_y_m}, track_id: {t.track_id})")
         return False
-    return False
