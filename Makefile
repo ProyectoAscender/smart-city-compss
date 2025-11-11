@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 COMPSS_VERSION=3.3-arm
-SMARTCITY_VERSION=1.2
+SMARTCITY_VERSION=1.1
 TAG=${SMARTCITY_VERSION}-${COMPSS_VERSION}
 BUILDER=registry.gitlab.bsc.es/ppc/software/compss/compss_nvidia:${COMPSS_VERSION}
 PREFIX=registry.gitlab.bsc.es/ppc/benchmarks/smart-city/
