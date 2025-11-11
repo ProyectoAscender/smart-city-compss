@@ -80,8 +80,6 @@ RUN apt install -y libgdal-dev
 RUN echo dgsertw
 RUN git clone https://pat:gc7sMZHxho-jyyFfcQRi@gitlab.bsc.es/ppc/benchmarks/smart-city/smart-city-compss.git -b newtracker
 WORKDIR /root/smart-city-compss
-# --- Copy your local repository (this Docker build MUST be run from the repo root) ---
-# COPY . .
 # Compss obstacle detection dependencies
 # COPY requirements.txt requirements.txt
 
