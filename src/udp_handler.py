@@ -65,7 +65,7 @@ def run_udp(
         exp_dir=None,
         expn=None,
         only_results=False, 
-        save_results=True,
+        save_results_csv=True,
         save_plot=False,
         view_plot=False,
         get_semantic=True, 
@@ -303,7 +303,7 @@ def run_udp(
     frameId = 0
     ts = 0
     # Time inicialization
-    timers = {name: Timer() for name in ['track', 'frame_reception', 'udp_decoding','udp_wait_reception', 'processing', 'speed', 'video', 'semantics', 'total', 'saving_results']}      
+    timers = {name: Timer() for name in ['track', 'frame_reception', 'udp_decoding','udp_wait_reception', 'processing', 'kafka', 'video', 'total', 'saving_results']}      
     # Variable inicialization:
     skiped_frames = 0
     fps_est = DEFAULT_FPS  # Initialize FPS estimation
@@ -452,7 +452,7 @@ def run_udp(
 
         #Calcualte speed and semantics if needed
         #####################################################################################
-        print(f"[UDP DEBUG] Entering normal processing mode (NOT only_results)")
+        # print(f"[UDP DEBUG] Entering normal processing mode (NOT only_results)")
         timers['processing'].tic()
         futures = []
         for t in online_targets:
@@ -477,10 +477,11 @@ def run_udp(
                 if(get_speed):
                     online_speeds.append(online_speeds_task)
 
+                timers['processing'].toc()
 
                 
 
-                
+                timers['kafka'].tic()
                 # Send tracking data to Kafka or append to CSV results
                 if (use_kafka and kafka_producer):
                     send_target_to_kafka(t, i, CAM_ID, frameId, ts_reception, use_kafka, 
@@ -498,20 +499,19 @@ def run_udp(
                         last_flush_time = time.time()
                         print(f"{CAM_ID} - Kafka producer auto-flushed")
 
-                else:
+                if (save_results_csv):
                     # CSV mode
                     all_results.append(
                             f"{frame_results[i]},{online_targets[i].location[0]},{online_targets[i].location[1]},"
                             f"{online_targets[i].median_speed:.2f},{online_targets[i].event.polyType}"
                         )
-                timers['speed'].toc(value=t_speed_task)
-                timers['semantics'].toc(value=t_semantics_task) 
+                timers['kafka'].toc()
+
 
             except Exception as e:
                 print(f"{CAM_ID} - Error receiving compss data: {e}")
                 sys.exit(1)
                 
-        timers['processing'].toc()
        
 
             
@@ -522,14 +522,12 @@ def run_udp(
         # Plotting video
         if save_plot or view_plot:
             online_im = plot_tracking(frame, online_targets, frame_id = frameId, fps = FPS, get_semantic = get_semantic)
-
         # Save video
         if save_plot:
             if current_hour % 2 == 0:
                 vid_writer.write(online_im)
             else:
                 vid_writer2.write(online_im)
-
         # View frame with plot
         if view_plot and os.environ.get("DISPLAY") is not None:
             cv2.imshow("Tracking", online_im)
@@ -537,13 +535,10 @@ def run_udp(
                 break
         elif view_plot and os.environ.get("DISPLAY") is None:
             # Send video (rtp)
-
             assert online_im.dtype == np.uint8 and online_im.shape[2] == 3
-
             print(f'{CAM_ID} - Sending trough rtp {HOST_IP} port 6000 with resolution {online_im.shape[:2]}')
             vid_sender.write(online_im)
             # print(f"WW2 {frameId}")
-
             # cv2.imwrite(f"./{frameId}.jpg", frame)
 
         timers['video'].toc()
@@ -552,22 +547,9 @@ def run_udp(
             skiped_frames = frameId - frame_idx
             print(f"{CAM_ID} - \tSmartCity skipped one frame!! Total skipped frames: {frameId - frame_idx}")
 
-        if (print_time and frame_idx % 30 == 0):
-            print(f"{CAM_ID} - Average FPS: {fps_est:.2f}, Frame {frame_idx}")
-            timers['total'].toc() 
-
-            # break
-            for name, timer in timers.items():
-                print(f'{CAM_ID} - Avg. {name.capitalize()} Time: {timer.average_time}')                
-                timer.clear()
-
-            # timers['total'].tic() ???????????????????????????
 
 
-        
-            
-
-        # We check again and save results with speed
+        # Saving all_results every hour change (and video if save_plot)
         if (frame_idx % 300 == 0 and new_hour != current_hour):
             timers['saving_results'].tic()
 
@@ -588,21 +570,26 @@ def run_udp(
                     print(f"{CAM_ID} - New video file started: {video_path}, vid_writer")
             current_hour = new_hour
             timers['saving_results'].toc()
-            timers['total'].toc() 
+
+        # Showing timers if print_time is enabled    
+        print(f"{CAM_ID} - Finishing iter {frame_idx} ")
+        timers['total'].toc()
+        if (print_time and frame_idx % 30 == 0):
+            # print(f"{CAM_ID} - Average FPS: {fps_est:.2f}, Frame {frame_idx}")
+            # break
+            for name, timer in timers.items():
+                print(f'{CAM_ID} - Avg. {name.capitalize()} Time: {timer.average_time}')                
+                timer.clear()
 
 
-            # if not use_kafka:
-            #     save_results_to_csv(results, output_dir, CAM_ID, frame_idx)
         else: 
             print(f"{CAM_ID} - Acabando {frame_idx} - {frameId} - {tm.time()}")
-            timers['total'].toc() 
             continue  # Continue normal processing
-            
-        print(f"{CAM_ID} - Finishing iter {frame_idx} ")
-        
+
+
+        ############## END LOOP ###########################
         # We end loop if not new frames are going to arrive
         # if frameId >= NUM_ITERS and NEVEREND == False: 
-        #     break
 
     # CLEANUP AND FINAL DATA HANDLING
     print(f'{CAM_ID} - Camera edge while loop has ended')
@@ -615,7 +602,7 @@ def run_udp(
         kafka_producer.flush()  # Ensure all pending messages are sent
         kafka_producer.close()  # Clean shutdown of producer
         print(f"{CAM_ID} - Kafka producer flushed and closed")
-    elif save_results and all_results != []:
+    if save_results_csv and all_results != []:
         # CSV MODE: Save accumulated results to file
         utils.save_results(all_results, exp_dir, CAM_ID)
         
@@ -663,7 +650,7 @@ def main_udp(opt):
     #     # shutil.rmtree(exp_vid_dir)
     # opt.exp_dir = exp_vid_dir
     
-    if(opt.only_results and not opt.save_results) or (opt.only_results and (opt.save_plot or opt.view_plot or opt.get_speed or opt.get_semantic or opt.alerts)):
+    if(opt.only_results and not opt.save_results_csv) or (opt.only_results and (opt.save_plot or opt.view_plot or opt.get_speed or opt.get_semantic or opt.alerts)):
          print("Has introducido argumentos incompatibles con only_results.")
          sys.exit()
     ############################################################################
@@ -693,7 +680,8 @@ def main_udp(opt):
                             exp_dir=opt.exp_dir,
                             expn=opt.expn,
                             only_results=opt.only_results,
-                            save_results=opt.save_results,
+                            save_results_csv=opt.save_results_csv,
+                            print_time=opt.print_time,
                             save_plot=opt.save_plot,
                             view_plot=opt.view_plot,
                             get_speed=opt.get_speed,

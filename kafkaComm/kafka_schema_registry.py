@@ -316,17 +316,17 @@ def send_target_to_kafka(t, i, CAM_ID, frameId, ts_reception, use_kafka, kafka_p
         bool: True if data was sent to Kafka successfully, False otherwise
     """
     # Extract UTM values from track object (proper source)
-    print(f"{CAM_ID} - Debug: Processing target {i}: {t}")
-    print(f"{CAM_ID} - Debug: t.location: {getattr(t, 'location', 'NO LOCATION ATTR')}")
-    print(f"{CAM_ID} - Debug: t.median_speed: {getattr(t, 'median_speed', 'NO SPEED ATTR')}")
-    print(f"{CAM_ID} - Debug: t.event: {getattr(t, 'event', 'NO EVENT ATTR')}")
+    # print(f"{CAM_ID} - Debug: Processing target {i}: {t}")
+    # print(f"{CAM_ID} - Debug: t.location: {getattr(t, 'location', 'NO LOCATION ATTR')}")
+    # print(f"{CAM_ID} - Debug: t.median_speed: {getattr(t, 'median_speed', 'NO SPEED ATTR')}")
+    # print(f"{CAM_ID} - Debug: t.event: {getattr(t, 'event', 'NO EVENT ATTR')}")
     
     utm_x_m = float(t.location[0])
     utm_y_m = float(t.location[1])
     speed_kmh = float(getattr(t, "median_speed", 0.0))
     polygon_type = getattr(getattr(t, "event", None), "polyType", None)
     
-    print(f"{CAM_ID} - Debug: Extracted - utm_x_m: {utm_x_m}, utm_y_m: {utm_y_m}, speed_kmh: {speed_kmh}, polygon_type: {polygon_type}")
+    # print(f"{CAM_ID} - Debug: Extracted - utm_x_m: {utm_x_m}, utm_y_m: {utm_y_m}, speed_kmh: {speed_kmh}, polygon_type: {polygon_type}")
     
     # Only send to Kafka if UTM values are valid (not 0 and not None)
     utm_valid = utm_x_m != 0.0 and utm_y_m != 0.0 and utm_x_m is not None and utm_y_m is not None
@@ -352,14 +352,14 @@ def send_target_to_kafka(t, i, CAM_ID, frameId, ts_reception, use_kafka, kafka_p
             }
         }
         # Debug: verify types before sending
-        print(f"{CAM_ID} - Data types - ts: {type(data['ts'])} = {data['ts']}")
+        # print(f"{CAM_ID} - Data types - ts: {type(data['ts'])} = {data['ts']}")
         # Send to Kafka
         success = send_tracking_data_to_kafka(kafka_producer, kafka_topic, data, CAM_ID)
         if not success:
             print(f"{CAM_ID} - Failed to send tracking data to Kafka")
             return False
         else:
-            print(f"{CAM_ID} - Successfully sent tracking data to Kafka (UTM: {utm_x_m}, {utm_y_m})")
+            # print(f"{CAM_ID} - Successfully sent tracking data to Kafka (UTM: {utm_x_m}, {utm_y_m})")
             return True
     elif use_kafka and kafka_producer and not utm_valid:
         print(f"{CAM_ID} - Skipping Kafka send - invalid UTM values (utm_x_m: {utm_x_m}, utm_y_m: {utm_y_m}, track_id: {t.track_id})")

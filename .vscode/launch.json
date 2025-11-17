@@ -11,7 +11,7 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "args": [
-                "--edge_ips=agx13:8882", "--mode=udp" , "--save_plot=False", "--save_results=True", "--only_results=False", "--get_speed=True", "--get_semantic=True"
+                "--edge_ips=agx13:8882", "--mode=udp" , "--save_plot=False", "--save_results_csv=True", "--only_results=False", "--get_speed=True", "--get_semantic=True"
             ]
         }
     ]
