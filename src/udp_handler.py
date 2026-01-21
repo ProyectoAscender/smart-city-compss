@@ -282,7 +282,7 @@ def run_udp(
                         "appsrc ! videoconvert ! video/x-raw,format=NV12 ! nvvidconv ! video/x-raw(memory:NVMM),format=NV12 !" 
                         "nvv4l2h264enc insert-sps-pps=true iframeinterval=5 idrinterval=5 control-rate=1 bitrate=1000000 !" 
                         "h264parse ! rtph264pay config-interval=1 pt=96 ! "
-                        "udpsink host=239.255.12.42 port=5002 auto-multicast=true sync=0"  # Cambia IP/puerto según necesidad
+                        "udpsink host=239.255.12.41 port=5002 auto-multicast=true sync=0"  # Cambia IP/puerto según necesidad
                         )
 
         vid_sender = cv2.VideoWriter(gst_out_str, cv2.CAP_GSTREAMER, 0, FPS, (CAM_WIDTH, CAM_HEIGHT), True)

@@ -43,10 +43,6 @@ RUN python3 -c "import cv2; print(cv2.getBuildInformation())" | grep -i gstreame
     (echo 'ERROR: OpenCV was not built with GStreamer support!' && exit 1)
 
 
-
-
-
-
 RUN apt update -y && apt install -y software-properties-common
 
 # Deduplicator dependencies
@@ -77,8 +73,8 @@ RUN apt install -y libgdal-dev
 #     cmake .. && \
 #     make -j8
 
-RUN echo dgsertw
-RUN git clone https://pat:gc7sMZHxho-jyyFfcQRi@gitlab.bsc.es/ppc/benchmarks/smart-city/smart-city-compss.git -b newtracker
+RUN git clone https://github.com/ProyectoAscender/smart-city-compss.git -b main
+# RUN git clone https://pat:gc7sMZHxho-jyyFfcQRi@gitlab.bsc.es/ppc/benchmarks/smart-city/smart-city-compss.git -b master
 WORKDIR /root/smart-city-compss
 # --- Copy your local repository (this Docker build MUST be run from the repo root) ---
 # COPY . .
@@ -90,42 +86,11 @@ WORKDIR /root/smart-city-compss
 RUN python3 -m pip install -r requirements.txt
 
 
-# Compss obstacle detection
-# Tracker class project
-# RUN git clone https://gitlab.bsc.es/ppc-bsc/software/tracker_CLASS.git -b dev && \
-#     cd tracker_CLASS && \
-#     cat src/modules.cpp && \ 
-#     git submodule update --init --recursive && \
-#     mkdir build  && \
-#     cd build && \
-#     cmake .. -DWITH_MATPLOTLIB=OFF && \
-#     make -j8
-
-# # Tracker class project
-# RUN git clone https://pat:zn1XXoMgB4896i533XPo@gitlab.bsc.es/ppc/benchmarks/smart-city/tracker.git -b dev && \
-#     cd tracker && \
-#     git submodule update --init --recursive && \
-#     mkdir build  && \
-#     cd build && \
-#     cmake .. -DWITH_MATPLOTLIB=OFF && \
-#     make -j8
-
-# RUN mkdir tracker
-# COPY tracker ./tracker
-
-# RUN ls && cp /root/tracker/build/track.cpython-36m-aarch64-linux-gnu.so smart-city-compss/lib/
-#RUN cp /root/deduplicator/build/deduplicator.cpython-36m-aarch64-linux-gnu.so smartcity-compss/lib
-    # cp /root/deduplicator/build/deduplicator.cpython-36m-x86_64-linux-gnu.so . && \
-
-
-# RUN mkdir -p /root/data/florencia/batoni/roi/
-# COPY roi/ /root/data/florencia/batoni/roi/
 RUN mkdir -p /root/b2drop 
 # Avoid warn message when waiting too much for getting path data from b2drop
 ENV PYDEVD_WARN_EVALUATION_TIMEOUT 30
 RUN apt install -y x11-apps
 LABEL org.opencontainers.image.source https://github.com/proyectoAscender/smart-city-compss
-
-# Establishing entrypoint for downloading the stubs and making the image ready at runtime
-# ENTRYPOINT ["./entrypoint.sh"]
 LABEL org.opencontainers.image.source https://github.com/proyectoAscender/smart-city-compss
+
+ENTRYPOINT ["bash", "scripts/run.sh"]
