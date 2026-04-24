@@ -1,4 +1,6 @@
 import numpy as np
+import csv
+import itertools
 import shutil
 import time as tm
 import socket
@@ -48,6 +50,7 @@ def signal_handler(sig, frame):
 signal.signal(signal.SIGINT, signal_handler)
 
 def run_udp(
+        mode='udp',
         edge_ip=None,
         track_thresh = None,
         track_buffer = None,
@@ -95,52 +98,69 @@ def run_udp(
     # if FINISH_PROGRAM:
     #     break
     
+
     print(f"Handling edge_ip: {edge_ip}")
-    
-    # parse "host:port"
-    host, port_str = edge_ip.split(":")
-    port = int(port_str)
-    
-    # Create a UDP socket with configuration params
-    udpSock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    # udpSock.bind(('', port))
-    udpSock.settimeout(5.0)  # timeout for individual attempts
-    max_retries=150
-    retry_delay=1
-    
 
-    # handshake to get camera info
-    try:
-        info = comm_udp.handshake_and_get_info(udpSock, host, port, max_retries, retry_delay)
-        print(f"[ {edge_ip}] Camera info: {info}")
-    except socket.timeout:
-        print(f"[ {edge_ip}] Handshake timeout!")
-        return
+    # Si el modo es 'csv', obtener info de variables de entorno y saltar UDP
+    if (mode == 'csv'):
+        # Cargar variables de entorno desde .env manualmente usando utils
+        utils.load_env_vars()
+        CAM_ID = os.environ.get('CAM_ID', '0003')
+        MULTICAST = int(os.environ.get('MULTICAST', 0))
+        NEVEREND = int(os.environ.get('NEVEREND', 0))
+        NUM_ITERS = int(os.environ.get('FRAMES_TO_PROCESS', 1000))
+        CAM_HEIGHT = int(os.environ.get('CAM_HEIGHT', 1080))
+        CAM_WIDTH  = int(os.environ.get('CAM_WIDTH', 1920))
+        DATA_PATH = os.environ.get('DATA_PATH', 'data/city/area')
+        CITY = os.environ.get('CITY', 'city')
+        AREA = os.environ.get('AREA', 'area')
+        ROI_PATH = os.environ.get('ROI_PATH', f"data/{CITY}/{AREA}/roi/{AREA.lower()}_{CAM_ID}.json")
+        PMAT_PATH = os.environ.get('PMAT_PATH', f"data/{CITY}/{AREA}/pmat/{CAM_ID}_ACTIVE.txt")
+        if (not os.path.exists(PMAT_DEST_PATH)) or (os.stat(PMAT_PATH).st_mtime - os.stat(PMAT_DEST_PATH).st_mtime > 1) :
+            shutil.copy2 (PMAT_PATH, PMAT_DEST_PATH)
+        view_transformer = ViewTransformer(pmatPath = "./pmat.txt")
+        img_info = [CAM_HEIGHT, CAM_WIDTH]
+        test_size = (img_info[0], img_info[1])
+        FPS = DEFAULT_FPS
+    else:
+        # parse "host:port"
+        host, port_str = edge_ip.split(":")
+        port = int(port_str)
 
-    # GET EDGE INFO:
-    CAM_ID = info["cam_id"]
-    MULTICAST = int(info["multicast"])
-    NEVEREND = int(info['neverend'])
-    NUM_ITERS = int(info["frames_to_process"])
-    CAM_HEIGHT = int(info["cam_height"])
-    CAM_WIDTH  = int(info["cam_width"])
-    DATA_PATH = info["data_path"].replace("'", "")
-    DATA_PATH = os.path.join(*(DATA_PATH.split(os.path.sep)[3:-1]))
-    # videoPath = os.path.join( 'data', DATA_PATH, "videos/20230721_092248_cam01h264.mp4")
-    CITY = DATA_PATH.split(os.path.sep)[0]
-    AREA = DATA_PATH.split(os.path.sep)[1]
-    DATA_PATH = os.path.join( 'data', DATA_PATH)
-    ROI_PATH = DATA_PATH + '/roi/' + AREA.lower() + '_' + CAM_ID + '.json'
-    PMAT_PATH = utils.find_files_by_strings(os.path.join(DATA_PATH, 'pmat'), CAM_ID, "ACTIVE")[0]
-    if (not os.path.exists(PMAT_DEST_PATH)) or (os.stat(PMAT_PATH).st_mtime - os.stat(PMAT_DEST_PATH).st_mtime > 1) :
-        # Load pmat. First we add a local copy to avoid b2drop delay
-        # Load Pmat (this works assuming 1 edge camera)
-        shutil.copy2 (PMAT_PATH, PMAT_DEST_PATH)
-        # view_transformer = ViewTransformer(pmatPath = PMAT_PATH)
-        # os.system('cp -u' + PMAT_PATH + ' ./pmat.txt')
-    view_transformer = ViewTransformer(pmatPath = "./pmat.txt")
-    img_info = [CAM_HEIGHT, CAM_WIDTH]
-    test_size = (img_info[0], img_info[1]) # We don't want to re-scale yet
+        # Create a UDP socket with configuration params
+        udpSock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # udpSock.bind(('', port))
+        udpSock.settimeout(5.0)  # timeout for individual attempts
+        max_retries=150
+        retry_delay=1
+
+        # handshake to get camera info
+        try:
+            info = comm_udp.handshake_and_get_info(udpSock, host, port, max_retries, retry_delay)
+            print(f"[ {edge_ip}] Camera info: {info}")
+        except socket.timeout:
+            print(f"[ {edge_ip}] Handshake timeout!")
+            return
+
+        # GET EDGE INFO:
+        CAM_ID = info["cam_id"]
+        MULTICAST = int(info["multicast"])
+        NEVEREND = int(info['neverend'])
+        NUM_ITERS = int(info["frames_to_process"])
+        CAM_HEIGHT = int(info["cam_height"])
+        CAM_WIDTH  = int(info["cam_width"])
+        DATA_PATH = info["data_path"].replace("'", "")
+        DATA_PATH = os.path.join(*(DATA_PATH.split(os.path.sep)[3:-1]))
+        CITY = DATA_PATH.split(os.path.sep)[0]
+        AREA = DATA_PATH.split(os.path.sep)[1]
+        DATA_PATH = os.path.join( 'data', DATA_PATH)
+        ROI_PATH = DATA_PATH + '/roi/' + AREA.lower() + '_' + CAM_ID + '.json'
+        PMAT_PATH = utils.find_files_by_strings(os.path.join(DATA_PATH, 'pmat'), CAM_ID, "ACTIVE")[0]
+        if (not os.path.exists(PMAT_DEST_PATH)) or (os.stat(PMAT_PATH).st_mtime - os.stat(PMAT_DEST_PATH).st_mtime > 1) :
+            shutil.copy2 (PMAT_PATH, PMAT_DEST_PATH)
+        view_transformer = ViewTransformer(pmatPath = "./pmat.txt")
+        img_info = [CAM_HEIGHT, CAM_WIDTH]
+        test_size = (img_info[0], img_info[1]) # We don't want to re-scale yet
 
     # Optinal saving or visualizing video. Both ways requires get processed frames from camera-edge.
     if view_plot or save_plot:
@@ -212,6 +232,7 @@ def run_udp(
     frame_idx = 0
     frameId = 0
     ts = 0
+    ts_reception = datetime.now()
     # Time inicialization
     timers = {name: Timer() for name in ['track', 'frame_reception', 'udp_decoding','udp_wait_reception', 'processing', 'speed', 'video', 'semantics', 'total', 'saving_results']}
             
@@ -223,6 +244,19 @@ def run_udp(
     results = []
     all_results = []
     if (alerts): alertInfo = []
+
+    # Abrir fichero de tracklets si modo csv
+    _tracklets_iter = None
+    _tracklets_file = None
+    _csv_groups = None
+    if mode == 'csv':
+        tracklets_path = os.path.join(DATA_PATH, 'tracklets.txt')
+        _tracklets_file = open(tracklets_path, 'r', buffering=1 << 20)  # 1MB read buffer
+        _tracklets_rows = (row for row in csv.reader(_tracklets_file)
+                           if row and not row[0].startswith('#'))
+        # Agrupar filas por frameId (columna 1)
+        _csv_groups = itertools.groupby(_tracklets_rows, key=lambda r: r[1])
+        print(f'{CAM_ID} - CSV mode: reading from {tracklets_path}')
     
     print('Iterating frames')
     ######################### LOOP ITERATING FRAMES ########################
@@ -235,33 +269,38 @@ def run_udp(
         new_hour = int(datetime.now().strftime("%H"))  
         frame_idx += 1
         
-        
-        
         ###         Probably moving this to a separate thread would be nice... to fully decouples compute from IO.
         timers['udp_wait_reception'].tic()
-        # Loop to get the last message
-        udpSock.setblocking(False)
-        
-        while True:
-            if FINISH_PROGRAM:
-                break   
-            try: 
-                # Receiving boxes
-                hex_data, address = udpSock.recvfrom(16000)  # bigger buffer if needed
+        if mode == 'csv':
+            # Leer todas las filas que comparten el mismo frameId
+            group = next(_csv_groups, None)
+            if group is None:
+                FINISH_PROGRAM = True
+            else:
+                _fid_str, rows = group
+                rows = list(rows)
+                frameId = int(_fid_str)
+                ts = float(rows[0][2])
                 ts_reception = datetime.now()
-            except BlockingIOError as b:
-                if(hex_data==""):   # hex_data is set to "" at the end of the processing loop
-                    # print(f"[main.py - {CAM_ID}] No bounding box data, continuing...")
-                    continue
-                timers['udp_wait_reception'].toc()
+                det = np.array([[float(r[5]), float(r[6]), float(r[7]), float(r[8]), float(r[9]), int(r[10])] for r in rows])
+            timers['udp_wait_reception'].toc()
+        else:
+            # Lógica UDP original
+            udpSock.setblocking(False)
+            while True:
+                if FINISH_PROGRAM:
+                    break   
+                try: 
+                    hex_data, address = udpSock.recvfrom(16000)
+                    ts_reception = datetime.now()
+                except BlockingIOError as b:
+                    if(hex_data==""):
+                        continue
+                    timers['udp_wait_reception'].toc()
+                    break
+            udpSock.setblocking(True)
+            if FINISH_PROGRAM:
                 break
-
-        udpSock.setblocking(True)
-        if FINISH_PROGRAM:
-            break
-        
-        
-        
         
         timers['frame_reception'].tic()
     
@@ -276,37 +315,34 @@ def run_udp(
             # cv2.imwrite(f"./{frame_idx}_received.jpg", frame)
             
         timers['frame_reception'].toc()
+
+        if mode != 'csv':
+            timers['udp_decoding'].tic()
+            # Decode the message as per our template            
+            frameData = list(comm_udp.decode_hex_bboxes(hex_data))
             
-        
-        
-        timers['udp_decoding'].tic()
-        # Decode the message as per our template            
-        frameData = list(comm_udp.decode_hex_bboxes(hex_data))
-        
-        try:
-            frameId = frameData[0][2]
-            ts = frameData[0][3]
-        except IndexError:
-            print(f"{CAM_ID} - Udp hex data couldn't be decoded, so it has zero information")
-            # We simulate iteration info with no aprox. expected info
-            frameId = frameId + 1
-            ts = ts + (1/(FPS if "FPS" in vars() else DEFAULT_FPS))
+            try:
+                frameId = frameData[0][2]
+                ts = frameData[0][3]
+            except IndexError:
+                print(f"{CAM_ID} - Udp hex data couldn't be decoded, so it has zero information")
+                # We simulate iteration info with no aprox. expected info
+                frameId = frameId + 1
+                ts = ts + (1/(FPS if "FPS" in vars() else DEFAULT_FPS))
 
-        det = EMPTY_DET
-        # Checking case zero info in frameData
-        if not frameData:
-            print(f'{CAM_ID} - No frameData: UDP hexadecimal decode failed')
-        elif len(frameData[0]) <= 4:  #  can have 0 detections, only one row with frame info data
-            print(f'{CAM_ID} - 0 detections received')
-        else:
-            # Last 6 elements from frame data are the detections: [x,y,w,h,score,classId]
-            det = np.asarray([box[-6:] for box in frameData])
-            
-        timers['udp_decoding'].toc()
+            det = EMPTY_DET
+            # Checking case zero info in frameData
+            if not frameData:
+                print(f'{CAM_ID} - No frameData: UDP hexadecimal decode failed')
+            elif len(frameData[0]) <= 4:  #  can have 0 detections, only one row with frame info data
+                print(f'{CAM_ID} - 0 detections received')
+            else:
+                # Last 6 elements from frame data are the detections: [x,y,w,h,score,classId]
+                det = np.asarray([box[-6:] for box in frameData])
+                
+            timers['udp_decoding'].toc()
         
         
-
-
         ## TRACKING
         
         timers['track'].tic()
@@ -565,9 +601,13 @@ def run_udp(
         vid_sender.release()
         cv2.destroyAllWindows()
     
-    print(f"{CAM_ID} - About to close udp")
-    udpSock.close()
-    print(f"{CAM_ID} - Done receiving from {edge_ip}.\n")
+    if _tracklets_file is not None:
+        _tracklets_file.close()
+
+    if mode != 'csv':
+        print(f"{CAM_ID} - About to close udp")
+        udpSock.close()
+        print(f"{CAM_ID} - Done receiving from {edge_ip}.\n")
 
     if(alerts):
         print(f"{CAM_ID} - About to close mqtt")
@@ -585,9 +625,20 @@ def main_udp(opt):
     #     # shutil.rmtree(exp_vid_dir)
     # opt.exp_dir = exp_vid_dir
     
-    if(opt.only_results and not opt.save_results) or (opt.only_results and (opt.save_plot or opt.view_plot or opt.get_speed or opt.get_semantic or opt.alerts)):
-         print("Has introducido argumentos incompatibles con only_results.")
-         sys.exit()
+    incompatible_only_results = (
+        (opt.only_results and not opt.save_results) or
+        (opt.only_results and (opt.save_plot or opt.view_plot or opt.get_speed or opt.get_semantic or opt.alerts))
+    )
+    incompatible_csv_mode = (
+        opt.mode == 'csv' and (opt.save_plot or opt.view_plot)
+    )
+
+    if incompatible_only_results:
+        print("Error: argumentos incompatibles con --only_results.")
+        sys.exit(1)
+    if incompatible_csv_mode:
+        print("Error: --save_plot y --view_plot no son compatibles con --mode=csv.")
+        sys.exit(1)
     
     # Convert edge_ips to a list if needed
     # if (len(opt.edge_ips) > 1):
@@ -601,6 +652,7 @@ def main_udp(opt):
         futures = [
             executor.submit(
             run_udp,
+            mode=opt.mode,
             edge_ip=edge_ip,
             track_thresh=opt.track_thresh,
             track_buffer=opt.track_buffer,

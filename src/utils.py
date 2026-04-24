@@ -7,6 +7,24 @@ from poly import PolySemantic
 from datetime import datetime, timedelta
  
 
+def load_env_vars(env_path=None):
+    """
+    Carga variables de entorno desde un archivo .env (formato KEY=VALUE) sin dependencias externas.
+    Si env_path es None, busca en el cwd.
+    """
+    import os
+    if env_path is None:
+        env_path = os.path.join(os.getcwd(), '.env')
+    if os.path.exists(env_path):
+        with open(env_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#') or '=' not in line:
+                    continue
+                key, value = line.split('=', 1)
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                os.environ[key] = value
  
 def category_parse(number):
     import deduplicator as dd
