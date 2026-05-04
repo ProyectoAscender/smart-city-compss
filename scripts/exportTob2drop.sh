@@ -1,0 +1,1 @@
+sudo nohup rsync -azv --ignore-errors runs/exp/2025* /mnt/b2drop/smartCity/barcelona/urgell/logs/airurban/0003/ > rsync.log 2>&1 &

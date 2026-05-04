@@ -84,7 +84,7 @@ def run_udp(
         kafka_config = {}
     
     # Basic Kafka settings
-    use_kafka = kafka_config.get('use_kafka', True)
+    use_kafka = bool(kafka_config.get('use_kafka', True))
     kafka_bootstrap_servers = kafka_config.get('kafka_bootstrap_servers', 'localhost:9092')
     kafka_topic = kafka_config.get('kafka_topic', 'smartcity-tracking')
     
@@ -114,9 +114,9 @@ def run_udp(
     kafka_auto_flush = kafka_config.get('kafka_auto_flush', True)
     
     print("\n\n\n[udp_handler] Starting UDP-based tracking...")
-    print(f"[udp_handler] Configuration - use_kafka: {use_kafka}, only_results: {only_results}")
+    print(f"[udp_handler] Configuration - use_kafka2: {use_kafka}, only_results: {only_results}")
     print(f"[udp_handler] Kafka config - servers: {kafka_bootstrap_servers}, topic: {kafka_topic}")
-    if kafka_username:
+    if kafka_username and use_kafka:
         print(f"[udp_handler] Kafka authentication enabled - username: {kafka_username}, protocol: {kafka_security_protocol}")
     else:
         print(f"[udp_handler] Kafka authentication disabled - protocol: {kafka_security_protocol}")
@@ -134,6 +134,7 @@ def run_udp(
     # Initialize Schema Registry client if enabled
     ################################################################################################
     schema_registry_client = None
+
     if use_kafka and use_schema_registry:
         schema_registry_client = create_schema_registry_client(
             schema_registry_url=schema_registry_url,
@@ -143,10 +144,12 @@ def run_udp(
             ssl_cert_location=schema_registry_ssl_cert_location,
             ssl_key_location=schema_registry_ssl_key_location
         )
-    
     # Initialize Kafka producer if enabled
     kafka_producer = None
+    print(f'holasdsada11111a: {use_kafka}')
+
     if use_kafka:
+        print(f'holasdsada22222a: {use_kafka}')
         kafka_producer = create_kafka_producer(
             topic_name=kafka_topic,   #  pass the real topic here (now required)
             kafka_bootstrap_servers=kafka_bootstrap_servers,
@@ -184,7 +187,11 @@ def run_udp(
     #     break
     #############################################################################################
     # after kafka_producer is created
+    print('hola')
+    print('holasdsada33333a')
+
     last_flush_time = time.time() if (use_kafka and kafka_producer) else 0.0
+    print('adios')
     FLUSH_EVERY_SECS = 5.0  # tune as needed
     ###########################################################################################
     print(f"Handling edge_ip: {edge_ip}")
@@ -698,8 +705,6 @@ def main_udp(opt):
             except Exception as e:
 
                 print(f"Error en una tarea: {e}")
-
-        
 
         # reid_weights=opt.reid_weights,
 

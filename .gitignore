@@ -12,3 +12,6 @@ runs/
 # pmat.txt
 # data/*
 # !/data/.gitkeep
+sched.config
+resources.xml
+resources.xml

@@ -2,13 +2,16 @@
 <ResourcesList>
   <ComputeNode Name="smartcity-compss-worker-0">
     <Processor Name="MainProcessor">
-      <ComputingUnits>10</ComputingUnits>
+      <ComputingUnits>2</ComputingUnits>
       <Architecture>Intel</Architecture>
       <Speed>2.6</Speed>
     </Processor>
     <Memory>
-      <Size>4</Size>
+      <Size>2</Size>
     </Memory>
+    <Storage>
+      <Bandwidth>39999</Bandwidth>
+    </Storage>
     <OperatingSystem>
       <Type>Linux</Type>
       <Distribution>SMP</Distribution>
@@ -26,7 +29,7 @@
           <Interactive/>
         </SubmissionSystem>
         <Ports>
-          <MinPort>43001</MinPort>
+          <MinPort>40000</MinPort>
           <MaxPort>43002</MaxPort>
         </Ports>
       </Adaptor>
@@ -52,13 +55,16 @@
 
   <ComputeNode Name="smartcity-compss-worker-1">
     <Processor Name="MainProcessor">
-      <ComputingUnits>10</ComputingUnits>
+      <ComputingUnits>2</ComputingUnits>
       <Architecture>Intel</Architecture>
       <Speed>2.6</Speed>
     </Processor>
     <Memory>
-      <Size>4</Size>
+      <Size>2</Size>
     </Memory>
+    <Storage>
+      <Bandwidth>40001</Bandwidth>
+    </Storage>
     <OperatingSystem>
       <Type>Linux</Type>
       <Distribution>SMP</Distribution>
@@ -76,7 +82,7 @@
           <Interactive/>
         </SubmissionSystem>
         <Ports>
-          <MinPort>43001</MinPort>
+          <MinPort>40002</MinPort>
           <MaxPort>43002</MaxPort>
         </Ports>
       </Adaptor>

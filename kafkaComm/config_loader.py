@@ -22,7 +22,7 @@ def get_kafka_config_from_env():
     """
     config = {
         # Basic Kafka connection settings
-        "use_kafka": os.getenv("USE_KAFKA", "false").lower(),
+        "use_kafka": eval(os.getenv("USE_KAFKA", "false")),
         "kafka_bootstrap_servers": os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092"),
         "kafka_topic": os.getenv("KAFKA_TOPIC", "smartcity-tracking"),
 
