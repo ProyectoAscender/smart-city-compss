@@ -1,6 +1,4 @@
 import numpy as np
-import csv
-import itertools
 import shutil
 import time as tm
 import socket
@@ -14,7 +12,7 @@ from src.timer import Timer
 from src.visualize import plot_tracking
 from trackers.multi_tracker_zoo import create_tracker
 from src.viewTransform import ViewTransformer
-from src import utils, event, processing
+from src import csv_mode, utils, event, processing
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -100,28 +98,31 @@ def run_udp(
     
 
     print(f"Handling edge_ip: {edge_ip}")
+    csv_realtime = False
 
     # Si el modo es 'csv', obtener info de variables de entorno y saltar UDP
     if (mode == 'csv'):
-        # Cargar variables de entorno desde .env manualmente usando utils
-        utils.load_env_vars()
-        CAM_ID = os.environ.get('CAM_ID', '0003')
-        MULTICAST = int(os.environ.get('MULTICAST', 0))
-        NEVEREND = int(os.environ.get('NEVEREND', 0))
-        NUM_ITERS = int(os.environ.get('FRAMES_TO_PROCESS', 1000))
-        CAM_HEIGHT = int(os.environ.get('CAM_HEIGHT', 1080))
-        CAM_WIDTH  = int(os.environ.get('CAM_WIDTH', 1920))
-        DATA_PATH = os.environ.get('DATA_PATH', 'data/city/area')
-        CITY = os.environ.get('CITY', 'city')
-        AREA = os.environ.get('AREA', 'area')
-        ROI_PATH = os.environ.get('ROI_PATH', f"data/{CITY}/{AREA}/roi/{AREA.lower()}_{CAM_ID}.json")
-        PMAT_PATH = os.environ.get('PMAT_PATH', f"data/{CITY}/{AREA}/pmat/{CAM_ID}_ACTIVE.txt")
+        csv_config = csv_mode.load_csv_mode_config(DEFAULT_FPS)
+        selected_hours, source_csv_scan_path = csv_mode.select_csv_hours(csv_config["SOURCE_DATA_PATH"])
+        csv_mode.sync_csv_inputs(csv_config, selected_hours)
+        CAM_ID = csv_config['CAM_ID']
+        MULTICAST = csv_config['MULTICAST']
+        NEVEREND = csv_config['NEVEREND']
+        NUM_ITERS = csv_config['NUM_ITERS']
+        CAM_HEIGHT = csv_config['CAM_HEIGHT']
+        CAM_WIDTH  = csv_config['CAM_WIDTH']
+        DATA_PATH = csv_config['DATA_PATH']
+        CITY = csv_config['CITY']
+        AREA = csv_config['AREA']
+        ROI_PATH = csv_config['ROI_PATH']
+        PMAT_PATH = csv_config['PMAT_PATH']
+        FPS = csv_config['FPS']
+        csv_realtime = csv_config['CSV_REALTIME']
         if (not os.path.exists(PMAT_DEST_PATH)) or (os.stat(PMAT_PATH).st_mtime - os.stat(PMAT_DEST_PATH).st_mtime > 1) :
             shutil.copy2 (PMAT_PATH, PMAT_DEST_PATH)
         view_transformer = ViewTransformer(pmatPath = "./pmat.txt")
         img_info = [CAM_HEIGHT, CAM_WIDTH]
         test_size = (img_info[0], img_info[1])
-        FPS = DEFAULT_FPS
     else:
         # parse "host:port"
         host, port_str = edge_ip.split(":")
@@ -222,6 +223,13 @@ def run_udp(
             exit(1)
         print(f'{CAM_ID} Video saving prepared to {HOST_IP} ')
             
+    # Abrir fichero de tracklets si modo csv
+    _csv_groups = None
+    if mode == 'csv':
+        selected_hours, selected_csv_paths, _csv_groups, csv_scan_path = csv_mode.prepare_csv_groups(DATA_PATH, selected_hours)
+        print(f'{CAM_ID} - CSV mode: hours selected {selected_hours}')
+        print(f'{CAM_ID} - CSV mode: reading {len(selected_csv_paths)} CSV files from {csv_scan_path}')
+
     # If semantics enabled, load polygons:
     if(get_semantic):
         print(f'{CAM_ID} - Loading Polygons')
@@ -233,6 +241,8 @@ def run_udp(
     frameId = 0
     ts = 0
     ts_reception = datetime.now()
+    csv_frame_interval = (1.0 / FPS) if mode == 'csv' and csv_realtime and FPS > 0 else 0.0
+    csv_next_read_ts = None
     # Time inicialization
     timers = {name: Timer() for name in ['track', 'frame_reception', 'udp_decoding','udp_wait_reception', 'processing', 'speed', 'video', 'semantics', 'total', 'saving_results']}
             
@@ -244,38 +254,35 @@ def run_udp(
     results = []
     all_results = []
     if (alerts): alertInfo = []
-
-    # Abrir fichero de tracklets si modo csv
-    _tracklets_iter = None
-    _tracklets_file = None
-    _csv_groups = None
-    if mode == 'csv':
-        tracklets_path = os.path.join(DATA_PATH, 'tracklets.txt')
-        _tracklets_file = open(tracklets_path, 'r', buffering=1 << 20)  # 1MB read buffer
-        _tracklets_rows = (row for row in csv.reader(_tracklets_file)
-                           if row and not row[0].startswith('#'))
-        # Agrupar filas por frameId (columna 1)
-        _csv_groups = itertools.groupby(_tracklets_rows, key=lambda r: r[1])
-        print(f'{CAM_ID} - CSV mode: reading from {tracklets_path}')
     
     print('Iterating frames')
     ######################### LOOP ITERATING FRAMES ########################
     # We loop indefinitely or until some condition
     # while frame_idx < NUM_ITERS:
     # Loop changed because Smart City can be faster than camera-edge
-    while frameId <= NUM_ITERS or NEVEREND == True:
+    while not FINISH_PROGRAM and (mode == 'csv' or frameId <= NUM_ITERS or NEVEREND == True):
         timers['total'].tic()
-        hex_data = ""                 
+        hex_data = ""
         new_hour = int(datetime.now().strftime("%H"))  
         frame_idx += 1
         
-        ###         Probably moving this to a separate thread would be nice... to fully decouples compute from IO.
+
+        ######### DATA RECEPTION #########
+        ###### CSV 
         timers['udp_wait_reception'].tic()
         if mode == 'csv':
+            if csv_realtime and csv_next_read_ts is not None:
+                sleep_time = csv_next_read_ts - tm.time()
+                if sleep_time > 0:
+                    tm.sleep(sleep_time)
+            if csv_realtime:
+                csv_next_read_ts = tm.time() + csv_frame_interval
             # Leer todas las filas que comparten el mismo frameId
             group = next(_csv_groups, None)
             if group is None:
                 FINISH_PROGRAM = True
+                timers['udp_wait_reception'].toc()
+                break 
             else:
                 _fid_str, rows = group
                 rows = list(rows)
@@ -303,7 +310,7 @@ def run_udp(
                 break
         
         timers['frame_reception'].tic()
-    
+        ######### FRAME RECEPTION FOR PLOT #########
         # Receiving frame if needed
         if save_plot or view_plot:
             ret, frame = cap.read()
@@ -313,8 +320,8 @@ def run_udp(
             else:
                 print('--- > frame received')
             # cv2.imwrite(f"./{frame_idx}_received.jpg", frame)
-            
         timers['frame_reception'].toc()
+
 
         if mode != 'csv':
             timers['udp_decoding'].tic()
@@ -601,9 +608,6 @@ def run_udp(
         vid_sender.release()
         cv2.destroyAllWindows()
     
-    if _tracklets_file is not None:
-        _tracklets_file.close()
-
     if mode != 'csv':
         print(f"{CAM_ID} - About to close udp")
         udpSock.close()
