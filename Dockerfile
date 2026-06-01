@@ -19,8 +19,8 @@ RUN apt-get update -y && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Clone and build OpenCV with GStreamer & CUDA support
-RUN git clone --branch 4.x --depth 1 https://github.com/opencv/opencv.git && \
-    git clone --branch 4.x --depth 1 https://github.com/opencv/opencv_contrib.git && \
+RUN git clone --branch 4.10.0 --depth 1 https://github.com/opencv/opencv.git && \
+    git clone --branch 4.10.0 --depth 1 https://github.com/opencv/opencv_contrib.git && \
     mkdir -p opencv/build && cd opencv/build && \
     cmake -D CMAKE_BUILD_TYPE=RELEASE \
           -D CMAKE_INSTALL_PREFIX=/usr/local \
@@ -81,8 +81,7 @@ RUN echo dgsertw
 RUN git clone https://pat:gc7sMZHxho-jyyFfcQRi@gitlab.bsc.es/ppc/benchmarks/smart-city/smart-city-compss.git -b newtracker
 WORKDIR /root/smart-city-compss
 # Compss obstacle detection dependencies
-# COPY requirements.txt requirements.txt
-
+COPY requirements.txt requirements.txt
 
 # Then install your requirements
 RUN python3 -m pip install -r requirements.txt
@@ -122,6 +121,10 @@ RUN mkdir -p /root/b2drop
 # Avoid warn message when waiting too much for getting path data from b2drop
 ENV PYDEVD_WARN_EVALUATION_TIMEOUT 30
 RUN apt install -y x11-apps
+
+# Visualizer web server — accessible via SSH tunnel on port 8080
+EXPOSE 8080
+
 LABEL org.opencontainers.image.source https://github.com/proyectoAscender/smart-city-compss
 
 # Establishing entrypoint for downloading the stubs and making the image ready at runtime

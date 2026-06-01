@@ -20,6 +20,17 @@ import comm_udp as comm_udp
 
 from pycompss.api.api import compss_wait_on
 
+try:
+    import visualizer as _viz
+    _VIZ_AVAILABLE = True
+except ImportError:
+    _VIZ_AVAILABLE = False
+    class _viz:                              # noqa: E302
+        @staticmethod
+        def start(*a, **kw): pass
+        @staticmethod
+        def push_frame(*a, **kw): pass
+
 # Hardcoded values
 DEFAULT_FPS = 20
 VIDEO_OUT_NAME = "video_tracking_output.mp4"
@@ -237,6 +248,9 @@ def run_udp(
     else:
         polys = []
 
+    # Start the web visualizer (no-op if already started or not installed)
+    _viz.start(port=8080)
+
     frame_idx = 0
     frameId = 0
     ts = 0
@@ -244,7 +258,7 @@ def run_udp(
     csv_frame_interval = (1.0 / FPS) if mode == 'csv' and csv_realtime and FPS > 0 else 0.0
     csv_next_read_ts = None
     # Time inicialization
-    timers = {name: Timer() for name in ['track', 'frame_reception', 'udp_decoding','udp_wait_reception', 'processing', 'speed', 'video', 'semantics', 'total', 'saving_results']}
+    timers = {name: Timer() for name in ['track', 'frame_reception', 'udp_decoding','udp_wait_reception', 'processing', 'speed', 'video', 'semantics', 'total', 'saving_results', 'visualizer']}
             
     # Variable inicialization:
     skiped_frames = 0
@@ -471,8 +485,22 @@ def run_udp(
                 sys.exit(1)
         timers['processing'].toc()
 
-
-
+        # Push processed frame to the web visualizer (measured)
+        timers['visualizer'].tic()
+        _viz_objects = []
+        for t in online_targets:
+            if t.location is not None and len(t.location) >= 2:
+                _viz_objects.append({
+                    "track_id":  t.track_id,
+                    "class_id":  t.cl,
+                    "enu_x":     float(t.location[0]),
+                    "enu_y":     float(t.location[1]),
+                    "speed":     float(t.median_speed) if t.median_speed == t.median_speed else 0.0,
+                    "poly_type": t.event.polyType if (t.event and t.event.polyType) else "",
+                })
+        if _viz_objects:
+            _viz.push_frame(frameId, ts, _viz_objects)
+        timers['visualizer'].toc()
 
         timers['video'].tic()
 

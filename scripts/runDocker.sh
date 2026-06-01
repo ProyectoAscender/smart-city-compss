@@ -1,5 +1,5 @@
 COMPSS_VERSION=3.3-arm
-SMARTCITY_VERSION=1.1
+SMARTCITY_VERSION=1.2
 TAG=${SMARTCITY_VERSION}-${COMPSS_VERSION}
 # IMAGE=registry.gitlab.bsc.es/ppc/software/compss/compss_nvidia:${COMPSS_VERSION}
 IMAGE=smart-city-compss

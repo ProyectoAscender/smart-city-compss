@@ -34,3 +34,8 @@ shapely
 
 #alerts
 paho-mqtt
+
+# web visualizer
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+aiofiles>=23.0

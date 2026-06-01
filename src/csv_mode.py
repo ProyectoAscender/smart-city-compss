@@ -84,6 +84,13 @@ def _env_bool(*keys, default=False):
 
 
 def _sync_path(src_path, dst_path, is_dir):
+    if is_dir and os.path.isdir(dst_path):
+        print(f"[csv_mode] Skip (exists): {dst_path}")
+        return
+    if not is_dir and os.path.isfile(dst_path):
+        print(f"[csv_mode] Skip (exists): {dst_path}")
+        return
+
     print(f"[csv_mode] Sync {'dir' if is_dir else 'file'}: {src_path} -> {dst_path}")
     os.makedirs(dst_path if is_dir else os.path.dirname(dst_path), exist_ok=True)
 
@@ -177,10 +184,29 @@ def select_csv_hours(source_data_path):
     return selected_hours, source_scan_path
 
 
+def _cache_complete(csv_config, selected_hours, local_day_path) -> bool:
+    """Return True if all required files already exist in the local cache."""
+    cam_id = csv_config["CAM_ID"]
+    for hour_name in selected_hours:
+        tracklets = os.path.join(local_day_path, hour_name, cam_id, "tracklets.txt")
+        if not os.path.isfile(tracklets):
+            return False
+    utm_path = os.path.join(os.path.dirname(csv_config["PMAT_PATH"]), "origin_coordinates_utm.txt")
+    return (
+        os.path.isfile(csv_config["PMAT_PATH"])
+        and os.path.isfile(csv_config["ROI_PATH"])
+        and os.path.isfile(utm_path)
+    )
+
+
 def sync_csv_inputs(csv_config, selected_hours):
-    source_day_path = resolve_csv_scan_path(csv_config["SOURCE_DATA_PATH"])
     local_day_path = resolve_csv_scan_path(csv_config["DATA_PATH"], require_exists=False)
 
+    if _cache_complete(csv_config, selected_hours, local_day_path):
+        print("[csv_mode] All data already in cache — skipping sync")
+        return
+
+    source_day_path = resolve_csv_scan_path(csv_config["SOURCE_DATA_PATH"])
     print(f"[csv_mode] Syncing selected hours from {source_day_path} to {local_day_path}")
     os.makedirs(local_day_path, exist_ok=True)
     for hour_name in selected_hours:
@@ -190,9 +216,12 @@ def sync_csv_inputs(csv_config, selected_hours):
             is_dir=True,
         )
 
-    print("[csv_mode] Syncing PMAT and ROI")
+    print("[csv_mode] Syncing PMAT, UTM origin and ROI")
     _sync_path(csv_config["SOURCE_PMAT_PATH"], csv_config["PMAT_PATH"], is_dir=False)
     _sync_path(csv_config["SOURCE_ROI_PATH"], csv_config["ROI_PATH"], is_dir=False)
+    src_utm = os.path.join(os.path.dirname(csv_config["SOURCE_PMAT_PATH"]), "origin_coordinates_utm.txt")
+    dst_utm = os.path.join(os.path.dirname(csv_config["PMAT_PATH"]), "origin_coordinates_utm.txt")
+    _sync_path(src_utm, dst_utm, is_dir=False)
     print("[csv_mode] Sync complete")
 
 

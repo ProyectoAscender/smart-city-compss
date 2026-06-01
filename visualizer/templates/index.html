@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Smart City — Traffic Visualizer</title>
+
+  <link rel="stylesheet" href="/static/leaflet.css" />
+  <script src="/static/leaflet.js"></script>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #111; color: #e0e0e0;
+      height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+    }
+
+    #topbar {
+      display: flex; align-items: center; gap: 12px;
+      padding: 7px 14px; background: #16213e;
+      border-bottom: 1px solid #0f3460;
+      flex-shrink: 0; flex-wrap: wrap; z-index: 1000;
+    }
+    #topbar h1 { font-size: 14px; font-weight: 600; color: #e94560; white-space: nowrap; }
+    .ctrl-group { display: flex; align-items: center; gap: 6px; }
+    .ctrl-group label { font-size: 12px; color: #aaa; }
+    button {
+      background: #0f3460; border: 1px solid #e94560;
+      color: #fff; padding: 4px 11px; border-radius: 4px;
+      cursor: pointer; font-size: 13px; transition: background .15s;
+    }
+    button:hover { background: #e94560; }
+    button:disabled { opacity: 0.3; cursor: not-allowed; pointer-events: none; }
+    select {
+      background: #0f3460; border: 1px solid #333;
+      color: #fff; padding: 3px 7px; border-radius: 4px; font-size: 13px;
+    }
+    #status-bar { margin-left: auto; font-size: 12px; color: #888; white-space: nowrap; }
+    #frame-info { font-size: 12px; color: #7fdbff; white-space: nowrap; }
+
+    #map { flex: 1; width: 100%; min-height: 0; }
+
+    #legend {
+      position: absolute; bottom: 30px; right: 10px;
+      background: rgba(16,20,40,.92); border: 1px solid #0f3460;
+      border-radius: 6px; padding: 10px 13px; font-size: 12px;
+      z-index: 1000; pointer-events: none; min-width: 140px;
+    }
+    #legend h3 { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 5px; }
+    .lr { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
+    .cnt { margin-left: auto; font-size: 11px; color: #7fdbff; min-width: 24px; text-align: right; }
+    .dot { width: 11px; height: 11px; border-radius: 50%; border: 2px solid #fff; flex-shrink: 0; }
+    .sw  { width: 13px; height: 9px; border-radius: 2px; border: 1px solid rgba(255,255,255,.3); flex-shrink: 0; }
+    .sep { border-top: 1px solid #333; margin: 5px 0; }
+
+    #buf-wrap { width: 110px; }
+    #buf-bg { height: 5px; background: #333; border-radius: 3px; overflow: hidden; }
+    #buf-bar { height: 100%; background: #e94560; width: 0%; transition: width .3s; }
+    #buf-lbl { font-size: 10px; color: #666; margin-top: 2px; }
+
+    /* Track-id labels (right side) */
+    .tid-label {
+      background: transparent !important; border: none !important; box-shadow: none !important;
+      font-size: 9px; color: #fff; white-space: nowrap;
+      text-shadow: 0 0 3px #000, 0 0 3px #000;
+      padding: 0 2px !important;
+    }
+    .tid-label::before { display: none !important; }
+
+    /* Speed labels (left side — right-aligned, fixed width so anchor works) */
+    .spd-label {
+      background: transparent !important; border: none !important; box-shadow: none !important;
+      font-size: 9px; color: #FFD600; white-space: nowrap;
+      text-shadow: 0 0 3px #000, 0 0 3px #000;
+      padding: 0 2px !important; text-align: right; width: 52px;
+    }
+    .spd-label::before { display: none !important; }
+
+    .leaflet-control-attribution {
+      background: rgba(16,20,40,.8) !important;
+      color: #555 !important; font-size: 10px !important;
+    }
+    .leaflet-control-attribution a { color: #777 !important; }
+  </style>
+</head>
+<body>
+
+<div id="topbar">
+  <h1>&#x1F6F8; Smart City Traffic Visualizer</h1>
+
+  <div class="ctrl-group">
+    <button id="btn-reverse"   title="Reproducir hacia atrás">&#9664;&#9664;</button>
+    <button id="btn-pause"     title="Pausa">&#9646;&#9646;</button>
+    <button id="btn-play"      title="Reproducir">&#9654;</button>
+  </div>
+  <div class="ctrl-group">
+    <button id="btn-step-bwd" title="Frame anterior" disabled>&#9664;|</button>
+    <button id="btn-step-fwd" title="Frame siguiente" disabled>|&#9654;</button>
+  </div>
+  <div class="ctrl-group">
+    <button id="btn-restart" title="Reiniciar">&#9198;</button>
+  </div>
+
+  <div class="ctrl-group">
+    <label>Velocidad</label>
+    <select id="sel-speed">
+      <option value="0.25">0.25×</option>
+      <option value="0.5">0.5×</option>
+      <option value="1" selected>1×</option>
+      <option value="2">2×</option>
+      <option value="4">4×</option>
+      <option value="8">8×</option>
+    </select>
+  </div>
+
+  <div class="ctrl-group">
+    <button id="btn-polys">Polígonos</button>
+    <button id="btn-layer">🛰 Satélite</button>
+    <button id="btn-ids">IDs</button>
+    <button id="btn-spd">Vel.</button>
+  </div>
+
+  <div id="frame-info">—</div>
+
+  <div id="buf-wrap">
+    <div id="buf-bg"><div id="buf-bar"></div></div>
+    <div id="buf-lbl">Buffer: 0</div>
+  </div>
+
+  <div id="status-bar">Conectando…</div>
+</div>
+
+<div id="map"></div>
+
+<div id="legend">
+  <h3>Clases — visibles</h3>
+  <div class="lr"><div class="dot" style="background:#2196F3"></div>Peatón (0)<span class="cnt" id="cnt-0">0</span></div>
+  <div class="lr"><div class="dot" style="background:#F44336"></div>Coche (1)<span class="cnt" id="cnt-1">0</span></div>
+  <div class="lr"><div class="dot" style="background:#00BCD4"></div>Camión (2)<span class="cnt" id="cnt-2">0</span></div>
+  <div class="lr"><div class="dot" style="background:#FF9800"></div>Autobús (3)<span class="cnt" id="cnt-3">0</span></div>
+  <div class="lr"><div class="dot" style="background:#9C27B0"></div>Moto (4)<span class="cnt" id="cnt-4">0</span></div>
+  <div class="lr"><div class="dot" style="background:#4CAF50"></div>Bici (5)<span class="cnt" id="cnt-5">0</span></div>
+  <div class="lr"><div class="dot" style="background:#9E9E9E"></div>Otro (6)<span class="cnt" id="cnt-6">0</span></div>
+  <div class="sep"></div>
+  <h3>Zonas</h3>
+  <div class="lr"><div class="sw" style="background:#4CAF50"></div>Carril bici</div>
+  <div class="lr"><div class="sw" style="background:#F44336"></div>Carretera</div>
+  <div class="lr"><div class="sw" style="background:#FFEB3B"></div>Acera</div>
+  <div class="lr"><div class="sw" style="background:#2196F3"></div>Tranvía</div>
+  <div class="lr"><div class="sw" style="background:#E91E63"></div>Paso peatonal</div>
+  <div class="lr"><div class="sw" style="background:#FF9800"></div>Carril bus</div>
+</div>
+
+<script>
+// ──────────────────────────────────────────────────────────────
+//  Constants
+// ──────────────────────────────────────────────────────────────
+const CLASS_CFG = {
+  0: { color: '#2196F3', label: 'Peatón',  r: 5 },
+  1: { color: '#F44336', label: 'Coche',   r: 7 },
+  2: { color: '#00BCD4', label: 'Camión',  r: 8 },
+  3: { color: '#FF9800', label: 'Autobús', r: 8 },
+  4: { color: '#9C27B0', label: 'Moto',    r: 6 },
+  5: { color: '#4CAF50', label: 'Bici',    r: 5 },
+  6: { color: '#9E9E9E', label: 'Otro',    r: 6 },
+};
+const POLY_CFG = {
+  bikeLane:     { color: '#4CAF50', opacity: .5,  fill: .20 },
+  road:         { color: '#F44336', opacity: .5,  fill: .15 },
+  sidewalk:     { color: '#FFEB3B', opacity: .5,  fill: .15 },
+  tramway:      { color: '#2196F3', opacity: .6,  fill: .25 },
+  pedCross:     { color: '#E91E63', opacity: .6,  fill: .30 },
+  busRoad:      { color: '#FF9800', opacity: .5,  fill: .15 },
+  ngArea:       { color: '#212121', opacity: .7,  fill: .30 },
+  carTramCross: { color: '#9C27B0', opacity: .5,  fill: .25 },
+  bikeCarCross: { color: '#009688', opacity: .5,  fill: .25 },
+};
+const DEFAULT_POLY = { color: '#fff', opacity: .4, fill: .10 };
+
+// ──────────────────────────────────────────────────────────────
+//  Tile layers
+// ──────────────────────────────────────────────────────────────
+const canvasRenderer = L.canvas({ padding: 0.5 });
+const map = L.map('map', { zoomControl: true });
+
+const layerDark = L.tileLayer(
+  'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+  { attribution: '&copy; OpenStreetMap &copy; CARTO', subdomains: 'abcd', maxZoom: 22 }
+);
+const layerSat = L.tileLayer(
+  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+  { attribution: '&copy; Esri, Maxar, Earthstar Geographics', maxZoom: 22 }
+);
+const layerSatLabels = L.tileLayer(
+  'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}',
+  { attribution: '', maxZoom: 22, opacity: 0.7 }
+);
+
+let usingSat = true;
+layerSat.addTo(map);
+layerSatLabels.addTo(map);
+
+// ──────────────────────────────────────────────────────────────
+//  State
+// ──────────────────────────────────────────────────────────────
+let appFps    = 25;
+let speed     = 1.0;
+let playing   = true;
+let direction = 1;     // 1 = forward, -1 = backward
+let showIds   = false;
+let showSpds  = false;
+
+const frameQueue  = [];
+const seenIds     = new Set();
+let   qHead       = 0;
+
+const markers       = new Map();  // track_id → L.circleMarker
+const trackClass    = new Map();  // track_id → class_id  (for counts)
+const trackSpeed    = new Map();  // track_id → last displayed speed string
+const trackLastSpd  = new Map();  // track_id → last valid speed number (hold-last)
+const labelMarkers  = new Map();  // track_id → L.marker  (track_id label, right side)
+const speedMarkers  = new Map();  // track_id → L.marker  (speed label, left side)
+const polyLayers   = [];
+let   polysVisible = true;
+
+let lastFrameTs = null;
+let realTimeRef = null;
+
+// ──────────────────────────────────────────────────────────────
+//  Polygons
+// ──────────────────────────────────────────────────────────────
+function drawPolygons(polygons) {
+  polyLayers.forEach(l => map.removeLayer(l));
+  polyLayers.length = 0;
+  polygons.forEach(p => {
+    const cfg     = POLY_CFG[p.type] || DEFAULT_POLY;
+    const latlngs = p.coords.map(c => [c.lat, c.lng]);
+    const layer   = L.polygon(latlngs, {
+      color: cfg.color, opacity: cfg.opacity, weight: 2,
+      fillColor: cfg.color, fillOpacity: cfg.fill,
+    }).bindTooltip(p.type, { sticky: true });
+    if (polysVisible) layer.addTo(map);
+    polyLayers.push(layer);
+  });
+}
+
+// ──────────────────────────────────────────────────────────────
+//  Class counters
+// ──────────────────────────────────────────────────────────────
+function updateCounts() {
+  const counts = {};
+  trackClass.forEach(cls => { counts[cls] = (counts[cls] || 0) + 1; });
+  for (let c = 0; c <= 6; c++) {
+    const el = document.getElementById(`cnt-${c}`);
+    if (el) el.textContent = counts[c] || 0;
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
+//  Frame rendering  — markers stored as plain L.circleMarker (unchanged)
+// ──────────────────────────────────────────────────────────────
+function renderFrame(frame) {
+  const activeIds = new Set(frame.objects.map(o => o.track_id));
+
+  markers.forEach((marker, id) => {
+    if (!activeIds.has(id)) {
+      marker.remove();
+      const lbl = labelMarkers.get(id);
+      if (lbl) { lbl.remove(); labelMarkers.delete(id); }
+      const spd = speedMarkers.get(id);
+      if (spd) { spd.remove(); speedMarkers.delete(id); }
+      trackClass.delete(id);
+      trackSpeed.delete(id);
+      trackLastSpd.delete(id);
+      markers.delete(id);
+    }
+  });
+
+  frame.objects.forEach(obj => {
+    const ll  = [obj.lat, obj.lng];
+    const cls = CLASS_CFG[obj.class_id] ?? CLASS_CFG[6];
+
+    // Hold-last: only a positive speed from processing.py is meaningful.
+    // 0.0 means "all NaN slots → forced 0" (no data), same as null — don't overwrite.
+    if (obj.speed !== null && obj.speed > 0) trackLastSpd.set(obj.track_id, obj.speed);
+    const spd    = trackLastSpd.get(obj.track_id);
+    const spdTxt = spd !== undefined ? `${spd.toFixed(1)} km/h` : '—';
+    trackSpeed.set(obj.track_id, spdTxt);
+
+    if (markers.has(obj.track_id)) {
+      markers.get(obj.track_id).setLatLng(ll);
+      const lbl = labelMarkers.get(obj.track_id);
+      if (lbl) lbl.setLatLng(ll);
+      const spdMkr = speedMarkers.get(obj.track_id);
+      if (spdMkr) {
+        spdMkr.setLatLng(ll);
+        spdMkr.setIcon(L.divIcon({
+          className: 'spd-label', html: spdTxt,
+          iconSize: [52, 14], iconAnchor: [54, 7],
+        }));
+      }
+    } else {
+      const m = L.circleMarker(ll, {
+        renderer:    canvasRenderer,
+        radius:      cls.r,
+        color:       '#fff',
+        weight:      1.5,
+        fillColor:   cls.color,
+        fillOpacity: 1,
+      })
+      .bindTooltip(
+        `${cls.label} #${obj.track_id}<br>${spdTxt} · ${obj.poly_type}`,
+        { sticky: true }
+      )
+      .addTo(map);
+      markers.set(obj.track_id, m);
+      trackClass.set(obj.track_id, obj.class_id);
+
+      if (showIds) {
+        const lbl = L.marker(ll, {
+          icon: L.divIcon({ className: 'tid-label', html: String(obj.track_id),
+                            iconSize: null, iconAnchor: [-2, 7] }),
+          interactive: false,
+        }).addTo(map);
+        labelMarkers.set(obj.track_id, lbl);
+      }
+
+      if (showSpds) {
+        const spdMkr = L.marker(ll, {
+          icon: L.divIcon({ className: 'spd-label', html: spdTxt,
+                            iconSize: [52, 14], iconAnchor: [54, 7] }),
+          interactive: false,
+        }).addTo(map);
+        speedMarkers.set(obj.track_id, spdMkr);
+      }
+    }
+  });
+
+  const tsMs  = frame.ts / 1000;
+  const tsStr = new Date(tsMs).toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+  document.getElementById('frame-info').textContent =
+    `Frame ${frame.frame_id} · ${frame.objects.length} obj · ${tsStr}`;
+
+  updateCounts();
+}
+
+// ──────────────────────────────────────────────────────────────
+//  Render loop
+// ──────────────────────────────────────────────────────────────
+function renderLoop(now) {
+  requestAnimationFrame(renderLoop);
+  if (!playing) return;
+  if (direction ===  1 && qHead >= frameQueue.length) return;
+  if (direction === -1 && qHead <= 0) return;
+
+  const frameIdx = direction === 1 ? qHead : qHead - 1;
+  const frame    = frameQueue[frameIdx];
+
+  if (lastFrameTs === null) {
+    realTimeRef = now;
+    lastFrameTs = frame.ts;
+  } else {
+    const simDeltaMs = Math.abs(frame.ts - lastFrameTs) / 1000 / speed;
+    if (now - realTimeRef < simDeltaMs) return;
+  }
+
+  realTimeRef  = now;
+  lastFrameTs  = frame.ts;
+  qHead       += direction;
+
+  renderFrame(frame);
+  updateBuf();
+}
+requestAnimationFrame(renderLoop);
+
+// ──────────────────────────────────────────────────────────────
+//  WebSocket
+// ──────────────────────────────────────────────────────────────
+let ws;
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+
+  ws.onopen  = () => setStatus('Conectado ●');
+  ws.onclose = () => { setStatus('Reconectando…'); setTimeout(connectWS, 3000); };
+  ws.onerror = () => setStatus('Error WS');
+
+  ws.onmessage = ({ data }) => {
+    const msg = JSON.parse(data);
+    if (msg.type === 'init') {
+      appFps = msg.fps || 25;
+      map.setView([msg.ref_lat, msg.ref_lon], 18);
+      drawPolygons(msg.polygons || []);
+      console.log('[viz] init ref:', msg.ref_lat, msg.ref_lon, 'polys:', (msg.polygons||[]).length);
+    } else if (msg.type === 'frame') {
+      ingest(msg);
+    } else if (msg.type === 'batch') {
+      const before = frameQueue.length;
+      msg.frames.forEach(ingest);
+      console.log(`[viz] batch +${frameQueue.length - before} → total ${frameQueue.length}`);
+    } else if (msg.type === 'ping') {
+      ws.send('{"type":"pong"}');
+    }
+    updateBuf();
+    if (frameQueue.length > 0)
+      setStatus(`Conectado ● ${frameQueue.length} frames`);
+  };
+}
+
+function ingest(frame) {
+  if (seenIds.has(frame.frame_id)) return;
+  seenIds.add(frame.frame_id);
+  frameQueue.push(frame);
+  if (frameQueue.length > 1 &&
+      frame.frame_id < frameQueue[frameQueue.length - 2].frame_id) {
+    frameQueue.sort((a, b) => a.frame_id - b.frame_id);
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
+//  Controls
+// ──────────────────────────────────────────────────────────────
+function setStatus(s) { document.getElementById('status-bar').textContent = s; }
+
+function updateBuf() {
+  const rem = frameQueue.length - qHead;
+  document.getElementById('buf-bar').style.width = Math.min(100, rem / 200) + '%';
+  document.getElementById('buf-lbl').textContent = `Buffer: ${rem}`;
+}
+
+function setStepButtons() {
+  const paused = !playing;
+  document.getElementById('btn-step-fwd').disabled = !paused;
+  document.getElementById('btn-step-bwd').disabled = !paused;
+}
+
+document.getElementById('btn-reverse').addEventListener('click', () => {
+  direction   = -1;
+  playing     = true;
+  lastFrameTs = null;
+  realTimeRef = null;
+  setStepButtons();
+});
+
+document.getElementById('btn-pause').addEventListener('click', () => {
+  playing = !playing;
+  lastFrameTs = null;
+  realTimeRef = null;
+  setStepButtons();
+});
+
+document.getElementById('btn-play').addEventListener('click', () => {
+  direction   = 1;
+  playing     = true;
+  lastFrameTs = null;
+  realTimeRef = null;
+  setStepButtons();
+});
+
+document.getElementById('btn-step-fwd').addEventListener('click', () => {
+  if (qHead < frameQueue.length) {
+    const frame = frameQueue[qHead];
+    lastFrameTs = frame.ts;
+    realTimeRef = performance.now();
+    qHead++;
+    renderFrame(frame);
+    updateBuf();
+  }
+});
+
+document.getElementById('btn-step-bwd').addEventListener('click', () => {
+  if (qHead > 0) {
+    qHead--;
+    const frame = frameQueue[qHead];
+    lastFrameTs = frame.ts;
+    realTimeRef = performance.now();
+    renderFrame(frame);
+    updateBuf();
+  }
+});
+
+document.getElementById('btn-restart').addEventListener('click', () => {
+  qHead = 0; lastFrameTs = null; realTimeRef = null;
+  direction = 1; playing = true;
+  setStepButtons();
+  markers.forEach(m => m.remove());      markers.clear();
+  labelMarkers.forEach(l => l.remove()); labelMarkers.clear();
+  speedMarkers.forEach(s => s.remove()); speedMarkers.clear();
+  trackClass.clear(); trackSpeed.clear(); trackLastSpd.clear();
+  updateBuf(); updateCounts();
+});
+
+document.getElementById('sel-speed').addEventListener('change', e => {
+  speed = parseFloat(e.target.value);
+  realTimeRef = performance.now();
+});
+
+document.getElementById('btn-polys').addEventListener('click', () => {
+  polysVisible = !polysVisible;
+  polyLayers.forEach(l => polysVisible ? l.addTo(map) : map.removeLayer(l));
+});
+
+document.getElementById('btn-layer').addEventListener('click', () => {
+  usingSat = !usingSat;
+  if (usingSat) {
+    map.removeLayer(layerDark);
+    layerSat.addTo(map);
+    layerSatLabels.addTo(map);
+    document.getElementById('btn-layer').textContent = '🌑 Oscuro';
+  } else {
+    map.removeLayer(layerSat);
+    map.removeLayer(layerSatLabels);
+    layerDark.addTo(map);
+    document.getElementById('btn-layer').textContent = '🛰 Satélite';
+  }
+});
+
+document.getElementById('btn-ids').addEventListener('click', () => {
+  showIds = !showIds;
+  document.getElementById('btn-ids').style.background = showIds ? '#e94560' : '';
+  labelMarkers.forEach(l => l.remove()); labelMarkers.clear();
+  if (showIds) {
+    markers.forEach((m, id) => {
+      const lbl = L.marker(m.getLatLng(), {
+        icon: L.divIcon({ className: 'tid-label', html: String(id),
+                          iconSize: null, iconAnchor: [-2, 7] }),
+        interactive: false,
+      }).addTo(map);
+      labelMarkers.set(id, lbl);
+    });
+  }
+});
+
+document.getElementById('btn-spd').addEventListener('click', () => {
+  showSpds = !showSpds;
+  document.getElementById('btn-spd').style.background = showSpds ? '#e94560' : '';
+  speedMarkers.forEach(s => s.remove()); speedMarkers.clear();
+  if (showSpds) {
+    markers.forEach((m, id) => {
+      const spdTxt = trackSpeed.get(id) || '0.0 km/h';
+      const spdMkr = L.marker(m.getLatLng(), {
+        icon: L.divIcon({ className: 'spd-label', html: spdTxt,
+                          iconSize: [52, 14], iconAnchor: [54, 7] }),
+        interactive: false,
+      }).addTo(map);
+      speedMarkers.set(id, spdMkr);
+    });
+  }
+});
+
+// ──────────────────────────────────────────────────────────────
+//  Bootstrap
+// ──────────────────────────────────────────────────────────────
+(async () => {
+  try {
+    const cfg = await (await fetch('/api/config')).json();
+    appFps = cfg.fps || 25;
+    map.setView([cfg.ref_lat, cfg.ref_lon], 18);
+    drawPolygons(cfg.polygons || []);
+  } catch (e) {
+    setStatus('Error config: ' + e.message);
+  }
+  connectWS();
+})();
+</script>
+</body>
+</html>

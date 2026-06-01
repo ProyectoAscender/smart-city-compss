@@ -7,6 +7,7 @@ __pycache__
 *.log
 *.txt
 runs/
+data_cache/*
 # *.pyc
 # 20230721_092248_cam01h264.mp4
 # pmat.txt
