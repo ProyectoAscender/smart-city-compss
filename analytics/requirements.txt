@@ -1,0 +1,4 @@
+bokeh==3.6.3
+pandas==2.2.3
+dask[dataframe]==2024.8.2
+pyarrow==17.0.0

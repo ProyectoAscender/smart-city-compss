@@ -1,0 +1,18 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY analytics/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
+
+COPY analytics /app/analytics
+RUN chmod +x /app/analytics/run_long_series_server.sh
+
+ENV LONG_SERIES_DATA_ROOT=/data/traffic-data
+ENV LONG_SERIES_APP_TITLE="Smart City Long-Series Speeds"
+ENV LONG_SERIES_MAX_POINTS=4000
+ENV BOKEH_PORT=5006
+
+EXPOSE 5006
+
+CMD ["/app/analytics/run_long_series_server.sh"]

@@ -5,10 +5,26 @@ from shapely.geometry import Polygon
 from poly import PolySemantic
 
 from datetime import datetime, timedelta
-import pytz
-
  
 
+def load_env_vars(env_path=None):
+    """
+    Carga variables de entorno desde un archivo .env (formato KEY=VALUE) sin dependencias externas.
+    Si env_path es None, busca en el cwd.
+    """
+    import os
+    if env_path is None:
+        env_path = os.path.join(os.getcwd(), '.env')
+    if os.path.exists(env_path):
+        with open(env_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#') or '=' not in line:
+                    continue
+                key, value = line.split('=', 1)
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                os.environ[key] = value
  
 def category_parse(number):
     import deduplicator as dd
@@ -120,50 +136,3 @@ def get_local_ip():
             return s.getsockname()[0]
     except Exception:
         return "127.0.0.1" 
-
-# ======================================================
-# Capture base timestamp once at process start (Europe/Madrid local time)
-# ======================================================
-BASE_TZ = pytz.timezone("Europe/Madrid")
-BASE_TIME = datetime.now(BASE_TZ)
-BASE_EPOCH_MS = int(BASE_TIME.timestamp() * 1000)
-
-def to_epoch_millis(ts_val):
-    """
-    Convert various timestamp formats to epoch milliseconds (UTC reference),
-    interpreting naive datetimes as Europe/Madrid local time.
-    
-    If a relative timestamp (seconds/ms/µs) is provided, it is added to BASE_TIME.
-    """
-    try:
-        # --- Case 1: ISO 8601 string ---
-        if isinstance(ts_val, str):
-            if ts_val.endswith("Z"):
-                dt = datetime.fromisoformat(ts_val.replace("Z", "+00:00"))
-            else:
-                dt = datetime.fromisoformat(ts_val)
-
-            # If no timezone → assume Europe/Madrid local time
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=BASE_TZ)
-
-            # Convert to UTC epoch ms
-            return int(dt.astimezone(timezone.utc).timestamp() * 1000)
-
-        # --- Case 2: Numeric value ---
-        if isinstance(ts_val, (int, float)):
-            # Detect scale
-            if ts_val > 1e15:       # nanoseconds
-                return int(ts_val / 1_000_000)
-            elif ts_val > 1e12:     # milliseconds
-                return int(ts_val)
-            elif ts_val > 1e9:      # seconds
-                return int(ts_val * 1000)
-            else:
-                # Relative seconds → add to base timestamp
-                return int(BASE_EPOCH_MS + int(ts_val * 1000))
-
-    except Exception as e:
-        print(f"[to_epoch_millis] Error parsing '{ts_val}': {e}")
-        # return int(time.time() * 1000)
-        return int(datetime.now(BASE_TZ).timestamp() * 1000)

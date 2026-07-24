@@ -77,6 +77,10 @@ if __name__ == "__main__":
         print('Entering into mode udp..')
         main_udp(opt)
 
+    elif opt.mode == "csv":
+        print('Entering into mode csv..')
+        main_udp(opt)
+
     elif opt.mode == "zmq":
         main_zmq(opt)
 

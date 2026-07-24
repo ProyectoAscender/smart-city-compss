@@ -8,12 +8,6 @@ fiona==1.8
 # pygeohash
 # shapely
 
-# Kafka and Avro for data streaming
-kafka-python>=2.0.2
-avro-python3>=1.10.2
-confluent-kafka>=2.1.1
-confluent-kafka[avro]>=2.1.1
-
 # Base Bytetrack ----------------------------------------
 ipython  # interactive notebook
 Pillow>=7.1.2
@@ -35,9 +29,13 @@ lap
 
 # opencv_python
 
-
 #semantics
 shapely
 
 #alerts
 paho-mqtt
+
+# web visualizer
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+aiofiles>=23.0
