@@ -68,20 +68,57 @@
     }
     .tid-label::before { display: none !important; }
 
-    /* Speed labels (left side — right-aligned, fixed width so anchor works) */
+    /* Speed labels (left side) — two lines: "old | new" then state */
     .spd-label {
       background: transparent !important; border: none !important; box-shadow: none !important;
-      font-size: 9px; color: #FFD600; white-space: nowrap;
+      font-size: 11px; white-space: nowrap; line-height: 1.3;
       text-shadow: 0 0 3px #000, 0 0 3px #000;
-      padding: 0 2px !important; text-align: right; width: 52px;
+      padding: 0 2px !important; text-align: right; width: 90px;
     }
     .spd-label::before { display: none !important; }
+    .spd-old   { color: #aaa; font-size: 10px; }
+    .spd-new   { color: #FFD600; }
+    .spd-state-mov { color: #4CAF50; font-size: 11px; font-weight: 700; letter-spacing: .5px; }
+    .spd-state-par { color: #FF5722; font-size: 11px; font-weight: 700; letter-spacing: .5px; }
 
     .leaflet-control-attribution {
       background: rgba(16,20,40,.8) !important;
       color: #555 !important; font-size: 10px !important;
     }
     .leaflet-control-attribution a { color: #777 !important; }
+
+    /* Compare panel */
+    #compare-panel {
+      position: absolute; top: 0; right: 0; bottom: 0; width: 620px;
+      background: rgba(16,20,40,.95); border-left: 1px solid #0f3460;
+      z-index: 1100; display: flex; flex-direction: column; font-size: 12px;
+    }
+    #compare-panel.hidden { display: none; }
+    #compare-header {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 10px; border-bottom: 1px solid #0f3460; flex-shrink: 0;
+    }
+    #compare-header h3 {
+      font-size: 11px; color: #888; text-transform: uppercase;
+      letter-spacing: .5px; flex: 1;
+    }
+    #compare-list { flex: 1; overflow-y: auto; padding: 6px 10px; }
+    .cmp-row { display: flex; align-items: center; gap: 6px; padding: 3px 4px; cursor: pointer; border-radius: 3px; }
+    .cmp-row.cmp-highlight { background: rgba(233,69,96,.35); }
+    .cmp-label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #compare-empty { color: #666; padding: 4px 0; }
+    #compare-chart-wrap {
+      height: 260px; border-top: 1px solid #0f3460; padding: 6px; flex-shrink: 0;
+      position: relative;
+    }
+    #compare-chart { width: 100%; height: 100%; display: block; }
+    #btn-chart-reset {
+      position: absolute; top: 8px; right: 10px; z-index: 10;
+      background: rgba(15,30,60,.9); border: 1px solid #1a4a8a;
+      color: #7fdbff; font-size: 10px; padding: 2px 7px; cursor: pointer;
+      border-radius: 3px; display: none; line-height: 1.5;
+    }
+    #btn-chart-reset:hover { background: rgba(30,60,120,.9); }
   </style>
 </head>
 <body>
@@ -119,6 +156,7 @@
     <button id="btn-layer">🛰 Satélite</button>
     <button id="btn-ids">IDs</button>
     <button id="btn-spd">Vel.</button>
+    <button id="btn-compare">📈 Comparar</button>
   </div>
 
   <div id="frame-info">—</div>
@@ -131,12 +169,22 @@
   <div id="status-bar">Conectando…</div>
 </div>
 
-<div id="map"></div>
+<div id="map">
+  <div id="compare-panel" class="hidden">
+    <div id="compare-header">
+      <h3>Comparar velocidades</h3>
+      <select id="compare-filter"></select>
+      <button id="btn-compare-clear" title="Limpiar selección">🗑</button>
+    </div>
+    <div id="compare-list"></div>
+    <div id="compare-chart-wrap"><canvas id="compare-chart"></canvas><button id="btn-chart-reset" title="Restablecer zoom">⟳ Reset</button></div>
+  </div>
+</div>
 
 <div id="legend">
   <h3>Clases — visibles</h3>
-  <div class="lr"><div class="dot" style="background:#2196F3"></div>Peatón (0)<span class="cnt" id="cnt-0">0</span></div>
-  <div class="lr"><div class="dot" style="background:#F44336"></div>Coche (1)<span class="cnt" id="cnt-1">0</span></div>
+  <div class="lr"><div class="dot" style="background:#2196F3"></div>Coche (0)<span class="cnt" id="cnt-0">0</span></div>
+  <div class="lr"><div class="dot" style="background:#F44336"></div>Peatón (1)<span class="cnt" id="cnt-1">0</span></div>
   <div class="lr"><div class="dot" style="background:#00BCD4"></div>Camión (2)<span class="cnt" id="cnt-2">0</span></div>
   <div class="lr"><div class="dot" style="background:#FF9800"></div>Autobús (3)<span class="cnt" id="cnt-3">0</span></div>
   <div class="lr"><div class="dot" style="background:#9C27B0"></div>Moto (4)<span class="cnt" id="cnt-4">0</span></div>
@@ -157,8 +205,8 @@
 //  Constants
 // ──────────────────────────────────────────────────────────────
 const CLASS_CFG = {
-  0: { color: '#2196F3', label: 'Peatón',  r: 5 },
-  1: { color: '#F44336', label: 'Coche',   r: 7 },
+  0: { color: '#2196F3', label: 'Coche',   r: 7 },
+  1: { color: '#F44336', label: 'Peatón',  r: 5 },
   2: { color: '#00BCD4', label: 'Camión',  r: 8 },
   3: { color: '#FF9800', label: 'Autobús', r: 8 },
   4: { color: '#9C27B0', label: 'Moto',    r: 6 },
@@ -209,20 +257,42 @@ let speed     = 1.0;
 let playing   = true;
 let direction = 1;     // 1 = forward, -1 = backward
 let showIds   = false;
-let showSpds  = false;
+let showSpds  = true;
 
 const frameQueue  = [];
-const seenIds     = new Set();
+const frameIndex  = new Map();   // frame_id -> index in frameQueue
 let   qHead       = 0;
 
 const markers       = new Map();  // track_id → L.circleMarker
 const trackClass    = new Map();  // track_id → class_id  (for counts)
-const trackSpeed    = new Map();  // track_id → last displayed speed string
-const trackLastSpd  = new Map();  // track_id → last valid speed number (hold-last)
 const labelMarkers  = new Map();  // track_id → L.marker  (track_id label, right side)
 const speedMarkers  = new Map();  // track_id → L.marker  (speed label, left side)
+const lastSpdHtml   = new Map();  // track_id → last-rendered speed/state HTML
+const missingCount  = new Map();  // track_id → consecutive frames absent
+const TRACK_GRACE_FRAMES = 50;    // ~2 s @ 25 fps — tolerate brief tracker gaps
 const polyLayers   = [];
 let   polysVisible = true;
+
+// Compare panel
+let   comparePanelOpen = false;
+let   currentFrameTs   = null;        // ts (µs) of the frame currently shown on the map
+let   chartXZoom       = 1.0;         // X-axis zoom level (1 = full range)
+let   chartXPan        = 0.0;         // left edge of visible window (seconds)
+const compareSelected  = new Set();   // track_ids picked for comparison
+const COMPARE_COLORS    = ['#FFD600','#00E5FF','#FF4081','#76FF03','#FF6E40','#B388FF','#69F0AE','#EEFF41'];
+const COMPARE_COLORS_KF = ['#FF6B6B','#4FC3F7','#CE93D8','#A5D6A7','#FFB74D','#90CAF9','#F48FB1','#FFF176'];
+function compareColor(id) {
+  const idx = [...compareSelected].indexOf(id);
+  return COMPARE_COLORS[Math.max(0, idx) % COMPARE_COLORS.length];
+}
+function compareColorKF(id) {
+  const idx = [...compareSelected].indexOf(id);
+  return COMPARE_COLORS_KF[Math.max(0, idx) % COMPARE_COLORS_KF.length];
+}
+
+function formatFrameTs(tsUs) {
+  return new Date(tsUs / 1000).toISOString().slice(11, 19) + ' UTC';
+}
 
 let lastFrameTs = null;
 let realTimeRef = null;
@@ -239,7 +309,8 @@ function drawPolygons(polygons) {
     const layer   = L.polygon(latlngs, {
       color: cfg.color, opacity: cfg.opacity, weight: 2,
       fillColor: cfg.color, fillOpacity: cfg.fill,
-    }).bindTooltip(p.type, { sticky: true });
+      interactive: false, // don't steal hover from the car markers above them
+    });
     if (polysVisible) layer.addTo(map);
     polyLayers.push(layer);
   });
@@ -264,29 +335,45 @@ function renderFrame(frame) {
   const activeIds = new Set(frame.objects.map(o => o.track_id));
 
   markers.forEach((marker, id) => {
-    if (!activeIds.has(id)) {
-      marker.remove();
-      const lbl = labelMarkers.get(id);
-      if (lbl) { lbl.remove(); labelMarkers.delete(id); }
-      const spd = speedMarkers.get(id);
-      if (spd) { spd.remove(); speedMarkers.delete(id); }
-      trackClass.delete(id);
-      trackSpeed.delete(id);
-      trackLastSpd.delete(id);
-      markers.delete(id);
+    if (activeIds.has(id)) {
+      missingCount.delete(id);
+      return;
     }
+    // The tracker can drop a track_id for a few frames (occlusion, missed
+    // detection) and pick it back up later — tolerate brief gaps so markers
+    // don't blink and Comparar selections aren't silently lost.
+    const missed = (missingCount.get(id) || 0) + 1;
+    if (missed < TRACK_GRACE_FRAMES) {
+      missingCount.set(id, missed);
+      return;
+    }
+    missingCount.delete(id);
+    marker.remove();
+    const lbl = labelMarkers.get(id);
+    if (lbl) { lbl.remove(); labelMarkers.delete(id); }
+    const spd = speedMarkers.get(id);
+    if (spd) { spd.remove(); speedMarkers.delete(id); }
+    trackClass.delete(id);
+    lastSpdHtml.delete(id);
+    compareSelected.delete(id);
+    markers.delete(id);
   });
 
   frame.objects.forEach(obj => {
     const ll  = [obj.lat, obj.lng];
     const cls = CLASS_CFG[obj.class_id] ?? CLASS_CFG[6];
 
-    // Hold-last: only a positive speed from processing.py is meaningful.
-    // 0.0 means "all NaN slots → forced 0" (no data), same as null — don't overwrite.
-    if (obj.speed !== null && obj.speed > 0) trackLastSpd.set(obj.track_id, obj.speed);
-    const spd    = trackLastSpd.get(obj.track_id);
-    const spdTxt = spd !== undefined ? `${spd.toFixed(1)} km/h` : '—';
-    trackSpeed.set(obj.track_id, spdTxt);
+    const spdVal   = obj.kf_speed != null ? `${obj.kf_speed.toFixed(1)} km/h` : (obj.speed != null ? `${obj.speed.toFixed(1)} km/h` : '–');
+    const refVal   = obj.ref_speed === 'nan' ? 'NAN'
+                    : obj.ref_speed != null   ? `${obj.ref_speed.toFixed(1)} km/h`
+                    : '–';
+    const stateVal = obj.state;
+    const stateCls = stateVal === 1 ? 'spd-state-par' : 'spd-state-mov';
+    const stateTxt = stateVal === 1 ? 'PAR' : (stateVal === 0 ? 'MOV' : '');
+    const stateRow = stateTxt ? `<br><span class="${stateCls}">${stateTxt}</span>` : '';
+    const refRow   = `<span class="spd-old">input: ${refVal}</span><br>`;
+    const spdHtml  = `${refRow}<span class="spd-new">${spdVal}</span>${stateRow}`;
+    lastSpdHtml.set(obj.track_id, spdHtml);
 
     if (markers.has(obj.track_id)) {
       markers.get(obj.track_id).setLatLng(ll);
@@ -296,8 +383,8 @@ function renderFrame(frame) {
       if (spdMkr) {
         spdMkr.setLatLng(ll);
         spdMkr.setIcon(L.divIcon({
-          className: 'spd-label', html: spdTxt,
-          iconSize: [52, 14], iconAnchor: [54, 7],
+          className: 'spd-label', html: spdHtml,
+          iconSize: [90, 42], iconAnchor: [92, 21],
         }));
       }
     } else {
@@ -310,9 +397,11 @@ function renderFrame(frame) {
         fillOpacity: 1,
       })
       .bindTooltip(
-        `${cls.label} #${obj.track_id}<br>${spdTxt} · ${obj.poly_type}`,
+        `${cls.label} #${obj.track_id}<br>${spdVal} (input: ${refVal}) · ${stateTxt} · ${obj.poly_type}`,
         { sticky: true }
       )
+      .on('mouseover', () => highlightCompareRow(obj.track_id, true))
+      .on('mouseout',  () => highlightCompareRow(obj.track_id, false))
       .addTo(map);
       markers.set(obj.track_id, m);
       trackClass.set(obj.track_id, obj.class_id);
@@ -328,8 +417,8 @@ function renderFrame(frame) {
 
       if (showSpds) {
         const spdMkr = L.marker(ll, {
-          icon: L.divIcon({ className: 'spd-label', html: spdTxt,
-                            iconSize: [52, 14], iconAnchor: [54, 7] }),
+          icon: L.divIcon({ className: 'spd-label', html: spdHtml,
+                            iconSize: [90, 42], iconAnchor: [92, 21] }),
           interactive: false,
         }).addTo(map);
         speedMarkers.set(obj.track_id, spdMkr);
@@ -341,8 +430,307 @@ function renderFrame(frame) {
   const tsStr = new Date(tsMs).toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
   document.getElementById('frame-info').textContent =
     `Frame ${frame.frame_id} · ${frame.objects.length} obj · ${tsStr}`;
+  currentFrameTs = frame.ts;
 
   updateCounts();
+
+  if (comparePanelOpen) {
+    refreshCompareList();
+    drawCompareChart();
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
+//  Compare panel
+// ──────────────────────────────────────────────────────────────
+function buildTrackSeries(trackId) {
+  const t = [], speed = [], ref = [], rawSpeed = [], checkpoints = [], kfSpeed = [];
+  let t0 = null;
+  let lastRef = null;
+  for (const frame of frameQueue) {
+    const obj = frame.objects.find(o => o.track_id === trackId);
+    if (obj && obj.speed != null) {
+      if (t0 === null) t0 = frame.ts;
+      t.push((frame.ts - t0) / 1e6);
+      speed.push(obj.speed);
+      const rv = (obj.ref_speed != null && obj.ref_speed !== 'nan') ? obj.ref_speed : null;
+      if (rv != null) lastRef = rv;
+      ref.push(lastRef);
+      rawSpeed.push(obj.raw_speed ?? null);
+      checkpoints.push(obj.checkpoint_speed ?? null);
+      kfSpeed.push(obj.kf_speed ?? null);
+    }
+  }
+  return { t, speed, ref, rawSpeed, checkpoints, kfSpeed, t0 };
+}
+
+function highlightCompareRow(trackId, on) {
+  const row = document.querySelector(`#compare-list .cmp-row[data-id="${trackId}"]`);
+  if (row) row.classList.toggle('cmp-highlight', on);
+}
+
+function refreshCompareList() {
+  const listEl = document.getElementById('compare-list');
+  const filter = document.getElementById('compare-filter').value;
+  let ids = [...markers.keys()].sort((a, b) => a - b);
+  if (filter !== 'all') {
+    const filterCls = parseInt(filter, 10);
+    ids = ids.filter(id => trackClass.get(id) === filterCls);
+  }
+
+  if (ids.length === 0) {
+    listEl.innerHTML = '<div id="compare-empty">Sin coches visibles</div>';
+    return;
+  }
+
+  const empty = document.getElementById('compare-empty');
+  if (empty) empty.remove();
+
+  // Drop rows for tracks no longer visible/filtered out.
+  const idSet = new Set(ids);
+  listEl.querySelectorAll('.cmp-row').forEach(row => {
+    if (!idSet.has(parseInt(row.dataset.id, 10))) row.remove();
+  });
+
+  // Add missing rows / update existing ones, in `ids` order.
+  ids.forEach(id => {
+    let row = listEl.querySelector(`.cmp-row[data-id="${id}"]`);
+    if (!row) {
+      row = document.createElement('label');
+      row.className = 'cmp-row';
+      row.dataset.id = id;
+      row.innerHTML = `
+        <input type="checkbox" data-id="${id}">
+        <span class="sw"></span>
+        <span class="cmp-label"></span>
+      `;
+      row.querySelector('input').addEventListener('change', e => {
+        const tid = parseInt(e.target.dataset.id, 10);
+        if (e.target.checked) compareSelected.add(tid);
+        else compareSelected.delete(tid);
+        refreshCompareList();
+        drawCompareChart();
+      });
+    }
+
+    const cls      = CLASS_CFG[trackClass.get(id)] ?? CLASS_CFG[6];
+    const selected = compareSelected.has(id);
+    row.querySelector('input').checked = selected;
+    row.querySelector('.sw').style.cssText = selected ? `background:${compareColor(id)}` : '';
+    row.querySelector('.cmp-label').textContent = `${cls.label} #${id}`;
+
+    listEl.appendChild(row); // (re)append → keeps DOM order matching `ids`
+  });
+}
+
+function resetChartZoom() {
+  chartXZoom = 1.0;
+  chartXPan  = 0.0;
+  const canvas = document.getElementById('compare-chart');
+  canvas.style.cursor = 'default';
+  document.getElementById('btn-chart-reset').style.display = 'none';
+  drawCompareChart();
+}
+
+function drawCompareChart() {
+  const canvas = document.getElementById('compare-chart');
+  const ctx    = canvas.getContext('2d');
+  const w = canvas.width  = canvas.clientWidth;
+  const h = canvas.height = canvas.clientHeight;
+  ctx.clearRect(0, 0, w, h);
+
+  if (compareSelected.size === 0) {
+    ctx.fillStyle = '#666';
+    ctx.font = '12px sans-serif';
+    ctx.fillText('Selecciona uno o más coches', 8, 20);
+    return;
+  }
+
+  const allSeries = [...compareSelected].map(id => ({ id, ...buildTrackSeries(id) }));
+  const series    = allSeries.filter(s => s.t.length >= 2);
+
+  ctx.fillStyle = '#888';
+  ctx.font = '10px sans-serif';
+  ctx.fillText(`Seleccionados: ${compareSelected.size}`, 8, 10);
+  if (currentFrameTs != null) {
+    ctx.fillStyle = '#7fdbff';
+    ctx.fillText(formatFrameTs(currentFrameTs), 100, 10);
+  }
+
+  if (series.length === 0) {
+    ctx.fillStyle = '#666';
+    ctx.font = '12px sans-serif';
+    ctx.fillText('Esperando datos de velocidad…', 8, 26);
+    return;
+  }
+
+  let tMax = 0, vMax = 1;
+  series.forEach(s => {
+    tMax = Math.max(tMax, s.t[s.t.length - 1]);
+    s.speed.forEach(v => { if (v > vMax) vMax = v; });
+    s.ref.forEach(v => { if (v != null && v > vMax) vMax = v; });
+    s.checkpoints.forEach(v => { if (v != null && v > vMax) vMax = v; });
+    s.rawSpeed.forEach(v => { if (v != null && v > vMax) vMax = v; });
+    s.kfSpeed.forEach(v => { if (v != null && v > vMax) vMax = v; });
+  });
+  vMax = Math.max(5, Math.ceil((vMax * 1.1) / 5) * 5);
+  if (tMax <= 0) tMax = 1;
+
+  // Zoom/pan: clamp pan so window stays within [0, tMax]
+  const visibleDur = tMax / chartXZoom;
+  chartXPan = Math.max(0, Math.min(chartXPan, tMax - visibleDur));
+  const xStart = chartXPan;
+  const xEnd   = xStart + visibleDur;
+
+  const padL = 28, padR = 6, padT = 6, padB = 16;
+  const plotW = Math.max(1, w - padL - padR);
+  const plotH = Math.max(1, h - padT - padB);
+  const x = t => padL + ((t - xStart) / visibleDur) * plotW;
+  const y = v => padT + plotH - (v / vMax) * plotH;
+
+  // "Now" position: where currentFrameTs falls within this series' time axis.
+  // Uses the first series' t0 as reference (works correctly for single-car
+  // selection; for multi-car it's approximate but good enough when cars appear
+  // at similar times).
+  const nowT = (currentFrameTs != null && series.length > 0 && series[0].t0 != null)
+    ? (currentFrameTs - series[0].t0) / 1e6
+    : null;
+
+  ctx.strokeStyle = '#333'; ctx.fillStyle = '#888'; ctx.font = '10px sans-serif';
+  const ySteps = 5;
+  for (let i = 0; i <= ySteps; i++) {
+    const v  = (vMax / ySteps) * i;
+    const yy = y(v);
+    ctx.beginPath(); ctx.moveTo(padL, yy); ctx.lineTo(w - padR, yy); ctx.stroke();
+    ctx.fillText(v.toFixed(0), 2, yy + 3);
+  }
+  const xSteps = 4;
+  for (let i = 0; i <= xSteps; i++) {
+    const t = xStart + (visibleDur / xSteps) * i;
+    ctx.fillText(t.toFixed(0) + 's', x(t) - 8, h - 4);
+  }
+
+  // Each car gets two curves in its own color: the computed speed (solid)
+  // and the CSV/input reference speed (dashed). The ref series can have
+  // gaps (null) — break the line instead of connecting across them.
+  series.forEach(s => {
+    ctx.strokeStyle = compareColor(s.id);
+    ctx.lineWidth   = 1.5;
+
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    s.t.forEach((t, i) => {
+      const px = x(t), py = y(s.speed[i]);
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    });
+    ctx.stroke();
+
+    ctx.setLineDash([5, 3]);
+    ctx.beginPath();
+    let drawing = false;
+    s.t.forEach((t, i) => {
+      const v = s.ref[i];
+      if (v == null) { drawing = false; return; }
+      const px = x(t), py = y(v);
+      if (!drawing) { ctx.moveTo(px, py); drawing = true; } else ctx.lineTo(px, py);
+    });
+    ctx.stroke();
+
+    // Kalman CV line — dot-dash, distinct colour
+    ctx.strokeStyle = compareColorKF(s.id);
+    ctx.setLineDash([8, 3, 2, 3]);
+    ctx.beginPath();
+    let drawingKF = false;
+    s.t.forEach((t, i) => {
+      const v = s.kfSpeed[i];
+      if (v == null) { drawingKF = false; return; }
+      const px = x(t), py = y(v);
+      if (!drawingKF) { ctx.moveTo(px, py); drawingKF = true; } else ctx.lineTo(px, py);
+    });
+    ctx.stroke();
+  });
+  ctx.setLineDash([]);
+
+  // Raw per-frame speed → small × marks; checkpoint speed → small ○ marks.
+  series.forEach(s => {
+    const color = compareColor(s.id);
+    ctx.strokeStyle = color;
+    ctx.lineWidth   = 1;
+
+    s.t.forEach((ti, i) => {
+      const v = s.rawSpeed[i];
+      if (v == null) return;
+      const cx = x(ti), cy = y(v), r = 3;
+      ctx.beginPath();
+      ctx.moveTo(cx - r, cy - r); ctx.lineTo(cx + r, cy + r);
+      ctx.moveTo(cx + r, cy - r); ctx.lineTo(cx - r, cy + r);
+      ctx.stroke();
+    });
+
+    s.t.forEach((ti, i) => {
+      const v = s.checkpoints[i];
+      if (v == null) return;
+      ctx.beginPath();
+      ctx.arc(x(ti), y(v), 4, 0, 2 * Math.PI);
+      ctx.stroke();
+    });
+  });
+
+  // "Now" marker: vertical line at the map's current frame position.
+  // Moves left/right as the user steps forward/backward through frames.
+  if (nowT != null && nowT >= xStart && nowT <= xEnd) {
+    const nowX = x(nowT);
+    ctx.strokeStyle = '#7fdbff';
+    ctx.lineWidth   = 1;
+    ctx.setLineDash([2, 2]);
+    ctx.beginPath();
+    ctx.moveTo(nowX, padT);
+    ctx.lineTo(nowX, h - padB);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#7fdbff';
+    ctx.font = '9px sans-serif';
+    ctx.fillText('▼', nowX - 3, padT + 8);
+  }
+
+  // Legend: three rows per car — solid=SG, dashed=input CSV, dot-dash=KalmanCV
+  ctx.font = '10px sans-serif';
+  allSeries.forEach((s, idx) => {
+    const color   = compareColor(s.id);
+    const colorKF = compareColorKF(s.id);
+    const y0 = 10 + idx * 33;
+
+    // Row 1: SG
+    ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+    ctx.setLineDash([]);
+    ctx.beginPath(); ctx.moveTo(w - 92, y0 - 3); ctx.lineTo(w - 78, y0 - 3); ctx.stroke();
+    ctx.fillStyle = '#ccc';
+    const calcLabel = s.t.length >= 2
+      ? `#${s.id} SG: ${s.speed[s.speed.length - 1].toFixed(1)} km/h`
+      : `#${s.id}: esperando…`;
+    ctx.fillText(calcLabel, w - 75, y0);
+
+    if (s.t.length >= 2) {
+      // Row 2: input CSV
+      const lastRef = [...s.ref].reverse().find(v => v != null);
+      ctx.strokeStyle = color;
+      ctx.setLineDash([3, 2]);
+      ctx.beginPath(); ctx.moveTo(w - 92, y0 + 9); ctx.lineTo(w - 78, y0 + 9); ctx.stroke();
+      ctx.fillStyle = '#ccc';
+      const refLabel = lastRef != null ? `input: ${lastRef.toFixed(1)} km/h` : 'input: –';
+      ctx.fillText(refLabel, w - 75, y0 + 12);
+
+      // Row 3: Kalman CV
+      const lastKF = [...s.kfSpeed].reverse().find(v => v != null);
+      ctx.strokeStyle = colorKF;
+      ctx.setLineDash([8, 3, 2, 3]);
+      ctx.beginPath(); ctx.moveTo(w - 92, y0 + 20); ctx.lineTo(w - 78, y0 + 20); ctx.stroke();
+      ctx.fillStyle = colorKF;
+      const kfLabel = lastKF != null ? `KF: ${lastKF.toFixed(1)} km/h` : 'KF: –';
+      ctx.fillText(kfLabel, w - 75, y0 + 23);
+    }
+  });
+  ctx.setLineDash([]);
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -395,10 +783,6 @@ function connectWS() {
       console.log('[viz] init ref:', msg.ref_lat, msg.ref_lon, 'polys:', (msg.polygons||[]).length);
     } else if (msg.type === 'frame') {
       ingest(msg);
-    } else if (msg.type === 'batch') {
-      const before = frameQueue.length;
-      msg.frames.forEach(ingest);
-      console.log(`[viz] batch +${frameQueue.length - before} → total ${frameQueue.length}`);
     } else if (msg.type === 'ping') {
       ws.send('{"type":"pong"}');
     }
@@ -409,12 +793,19 @@ function connectWS() {
 }
 
 function ingest(frame) {
-  if (seenIds.has(frame.frame_id)) return;
-  seenIds.add(frame.frame_id);
+  // Live frames take precedence over a previously-loaded runs/ batch frame
+  // with the same frame_id — replace it so the live speed is shown.
+  if (frameIndex.has(frame.frame_id)) {
+    frameQueue[frameIndex.get(frame.frame_id)] = frame;
+    return;
+  }
+  frameIndex.set(frame.frame_id, frameQueue.length);
   frameQueue.push(frame);
   if (frameQueue.length > 1 &&
       frame.frame_id < frameQueue[frameQueue.length - 2].frame_id) {
     frameQueue.sort((a, b) => a.frame_id - b.frame_id);
+    frameIndex.clear();
+    frameQueue.forEach((f, i) => frameIndex.set(f.frame_id, i));
   }
 }
 
@@ -487,7 +878,8 @@ document.getElementById('btn-restart').addEventListener('click', () => {
   markers.forEach(m => m.remove());      markers.clear();
   labelMarkers.forEach(l => l.remove()); labelMarkers.clear();
   speedMarkers.forEach(s => s.remove()); speedMarkers.clear();
-  trackClass.clear(); trackSpeed.clear(); trackLastSpd.clear();
+  trackClass.clear(); lastSpdHtml.clear(); missingCount.clear();
+  compareSelected.clear();
   updateBuf(); updateCounts();
 });
 
@@ -538,10 +930,9 @@ document.getElementById('btn-spd').addEventListener('click', () => {
   speedMarkers.forEach(s => s.remove()); speedMarkers.clear();
   if (showSpds) {
     markers.forEach((m, id) => {
-      const spdTxt = trackSpeed.get(id) || '0.0 km/h';
       const spdMkr = L.marker(m.getLatLng(), {
-        icon: L.divIcon({ className: 'spd-label', html: spdTxt,
-                          iconSize: [52, 14], iconAnchor: [54, 7] }),
+        icon: L.divIcon({ className: 'spd-label', html: lastSpdHtml.get(id) || '',
+                          iconSize: [90, 42], iconAnchor: [92, 21] }),
         interactive: false,
       }).addTo(map);
       speedMarkers.set(id, spdMkr);
@@ -549,9 +940,110 @@ document.getElementById('btn-spd').addEventListener('click', () => {
   }
 });
 
+document.getElementById('btn-compare').addEventListener('click', () => {
+  comparePanelOpen = !comparePanelOpen;
+  document.getElementById('btn-compare').style.background = comparePanelOpen ? '#e94560' : '';
+  document.getElementById('compare-panel').classList.toggle('hidden', !comparePanelOpen);
+  if (comparePanelOpen) {
+    refreshCompareList();
+    drawCompareChart();
+  }
+});
+
+document.getElementById('btn-compare-clear').addEventListener('click', () => {
+  compareSelected.clear();
+  chartXZoom = 1.0; chartXPan = 0.0;
+  document.getElementById('btn-chart-reset').style.display = 'none';
+  document.getElementById('compare-chart').style.cursor = 'default';
+  refreshCompareList();
+  drawCompareChart();
+});
+
+document.getElementById('compare-filter').addEventListener('change', () => {
+  refreshCompareList();
+});
+
+window.addEventListener('resize', () => {
+  if (comparePanelOpen) drawCompareChart();
+});
+
+// ── Chart zoom (scroll wheel) + pan (drag) ────────────────────
+(function () {
+  const canvas = document.getElementById('compare-chart');
+  let dragState = null;
+
+  function getSeriesTMax() {
+    const s = [...compareSelected].map(id => buildTrackSeries(id)).filter(s => s.t.length >= 2);
+    let tMax = 0;
+    s.forEach(s => { tMax = Math.max(tMax, s.t[s.t.length - 1]); });
+    return tMax > 0 ? tMax : null;
+  }
+
+  canvas.addEventListener('wheel', function (e) {
+    if (!comparePanelOpen || compareSelected.size === 0) return;
+    e.preventDefault();
+    const tMax = getSeriesTMax();
+    if (tMax === null) return;
+
+    const padL = 28, padR = 6;
+    const plotW = Math.max(1, canvas.clientWidth - padL - padR);
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const visibleDur = tMax / chartXZoom;
+    const tAtMouse = chartXPan + ((mouseX - padL) / plotW) * visibleDur;
+
+    chartXZoom = Math.max(1, Math.min(chartXZoom * (e.deltaY < 0 ? 1.3 : 1 / 1.3), 50));
+
+    const newVis = tMax / chartXZoom;
+    chartXPan = tAtMouse - ((mouseX - padL) / plotW) * newVis;
+    chartXPan = Math.max(0, Math.min(chartXPan, tMax - newVis));
+
+    const zoomed = chartXZoom > 1.01;
+    document.getElementById('btn-chart-reset').style.display = zoomed ? 'block' : 'none';
+    canvas.style.cursor = zoomed ? 'grab' : 'default';
+    drawCompareChart();
+  }, { passive: false });
+
+  canvas.addEventListener('mousedown', function (e) {
+    if (chartXZoom <= 1.01) return;
+    dragState = { startX: e.clientX, startPan: chartXPan };
+    canvas.style.cursor = 'grabbing';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', function (e) {
+    if (!dragState) return;
+    const tMax = getSeriesTMax();
+    if (tMax === null) { dragState = null; return; }
+    const padL = 28, padR = 6;
+    const plotW = Math.max(1, canvas.clientWidth - padL - padR);
+    const visibleDur = tMax / chartXZoom;
+    chartXPan = dragState.startPan - (e.clientX - dragState.startX) * (visibleDur / plotW);
+    chartXPan = Math.max(0, Math.min(chartXPan, tMax - visibleDur));
+    drawCompareChart();
+  });
+
+  document.addEventListener('mouseup', function () {
+    if (!dragState) return;
+    dragState = null;
+    canvas.style.cursor = chartXZoom > 1.01 ? 'grab' : 'default';
+  });
+})();
+
+document.getElementById('btn-chart-reset').addEventListener('click', resetChartZoom);
+
 // ──────────────────────────────────────────────────────────────
 //  Bootstrap
 // ──────────────────────────────────────────────────────────────
+document.getElementById('btn-spd').style.background = showSpds ? '#e94560' : '';
+
+{
+  const filterSel = document.getElementById('compare-filter');
+  filterSel.innerHTML = '<option value="all">Todas las clases</option>' +
+    Object.entries(CLASS_CFG).map(([id, c]) => `<option value="${id}">${c.label}</option>`).join('');
+  filterSel.value = '0'; // Coche
+}
+
 (async () => {
   try {
     const cfg = await (await fetch('/api/config')).json();

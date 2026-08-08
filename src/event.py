@@ -30,6 +30,7 @@ class Event(object):
             inOut = pol.poly.contains(geometry.Point(t.tlwh[0] + t.tlwh[2]/2, t.tlwh[1] + t.tlwh[3]))
             if(inOut):
                 self.polyType = pol.type
+                break
 
     def eventType(self, t):
         if(t.cl == 0): # If car

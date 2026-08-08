@@ -7,10 +7,6 @@ from pathlib import Path
 import numpy as np
 
 
-def _load_pmat(pmat_path: str) -> np.ndarray:
-    return np.loadtxt(pmat_path, delimiter=" ", usecols=range(3))
-
-
 def _pixel_to_map(M: np.ndarray, pixels: np.ndarray) -> np.ndarray:
     """Homography projection — identical to ViewTransformer.pixel_to_map."""
     if pixels.ndim == 1:
@@ -39,11 +35,12 @@ def _enu_to_gps(e: float, n: float, ref_lat: float, ref_lon: float) -> tuple[flo
     return lat, lon
 
 
-def load_polygons(roi_path: str, pmat_path: str,
+def load_polygons(roi_path: str, M: np.ndarray | None, origin: tuple[float, float] | None,
                   ref_lat: float = 0.0, ref_lon: float = 0.0) -> list[dict]:
-    """Load VIA-format ROI JSON and project pixel vertices → GPS via PMAT."""
-    M = _load_pmat(pmat_path)
-    origin = _load_origin(pmat_path)
+    """Load VIA-format ROI JSON and project pixel vertices → GPS using the
+    PMAT already loaded by the main process (no separate file load)."""
+    if M is None:
+        return []
     if origin is not None:
         ref_lat, ref_lon = origin
 

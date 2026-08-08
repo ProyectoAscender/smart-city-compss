@@ -128,9 +128,9 @@ def plot_tracking(image, online_targets, frame_id=0, fps=0., ids2=None, get_sema
         if getattr(t, 'score', None) is not None:
             _put_text_right(im, f'{t.score:.2f}', (x2 - 5, y1 + 5), scale=0.55)
 
-        # median_speed dentro (esquina inf-izq) - hacer más visible
-        if getattr(t, 'median_speed', None) is not None:
-            speed_text = f'{t.median_speed:.1f}'
+        # speed dentro (esquina inf-izq) - hacer más visible
+        if getattr(t, 'speed', None) is not None:
+            speed_text = f'{t.speed:.1f}'
             # calcular tamaño del texto
             font = cv2.FONT_HERSHEY_SIMPLEX
             scale = 0.8

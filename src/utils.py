@@ -110,13 +110,14 @@ def getPolysRoi(json_path):
 
     return poly_list
 
-def save_results(results, exp_dir, CAM_ID):
-    
-    # now_minus_1m = datetime.now() - timedelta(minutes=1)
-    folder_path = os.path.join(exp_dir, 
-                               datetime.now().strftime("%Y%m%d"), 
-                               datetime.now().strftime("%H%M"),
-                               CAM_ID)
+def save_results(results, exp_dir, CAM_ID, output_folder=None):
+    if output_folder is not None:
+        folder_path = output_folder
+    else:
+        folder_path = os.path.join(exp_dir,
+                                   datetime.now().strftime("%Y%m%d"),
+                                   datetime.now().strftime("%H%M"),
+                                   CAM_ID)
     
     os.makedirs(folder_path, exist_ok=True)
     res_file = os.path.join(folder_path, "tracklets.txt")

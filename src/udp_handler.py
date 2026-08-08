@@ -12,7 +12,7 @@ from src.timer import Timer
 from src.visualize import plot_tracking
 from trackers.multi_tracker_zoo import create_tracker
 from src.viewTransform import ViewTransformer
-from src import csv_mode, utils, event, processing
+from src import csv_mode, utils, event, processing, exclusions
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -22,6 +22,7 @@ from pycompss.api.api import compss_wait_on
 
 try:
     import visualizer as _viz
+    from visualizer.geo import _load_origin
     _VIZ_AVAILABLE = True
 except ImportError:
     _VIZ_AVAILABLE = False
@@ -30,6 +31,7 @@ except ImportError:
         def start(*a, **kw): pass
         @staticmethod
         def push_frame(*a, **kw): pass
+    def _load_origin(*a, **kw): return None
 
 # Hardcoded values
 DEFAULT_FPS = 20
@@ -48,6 +50,18 @@ FINISH_PROGRAM = False
 
 # Global for det
 EMPTY_DET = np.empty((0, 6), dtype=np.float32)
+
+
+# Empty placeholder for det_full (bbox + score + class + ref speed) outside CSV mode
+EMPTY_DET_FULL = np.empty((0, 7))
+
+
+def _safe_float(value, default=np.nan):
+    """Parse a CSV field as float, tolerating non-numeric placeholders like 'na'."""
+    try:
+        return float(value)
+    except ValueError:
+        return default
 
 
 
@@ -125,10 +139,16 @@ def run_udp(
         DATA_PATH = csv_config['DATA_PATH']
         CITY = csv_config['CITY']
         AREA = csv_config['AREA']
-        ROI_PATH = csv_config['ROI_PATH']
+        ROI_PATH       = csv_config['ROI_PATH']
+        EXCLUSION_PATH = csv_config['EXCLUSION_PATH']
         PMAT_PATH = csv_config['PMAT_PATH']
         FPS = csv_config['FPS']
         csv_realtime = csv_config['CSV_REALTIME']
+        _out_root = csv_config.get("OUTPUT_PATH", "")
+        if _out_root:
+            _csv_day = os.environ.get("CSV_DAY", "").strip() or "noday"
+            _hour_tag = "_".join(selected_hours) if selected_hours else "all"
+            exp_dir = os.path.join(_out_root, _csv_day, _hour_tag, CAM_ID)
         if (not os.path.exists(PMAT_DEST_PATH)) or (os.stat(PMAT_PATH).st_mtime - os.stat(PMAT_DEST_PATH).st_mtime > 1) :
             shutil.copy2 (PMAT_PATH, PMAT_DEST_PATH)
         view_transformer = ViewTransformer(pmatPath = "./pmat.txt")
@@ -166,7 +186,8 @@ def run_udp(
         CITY = DATA_PATH.split(os.path.sep)[0]
         AREA = DATA_PATH.split(os.path.sep)[1]
         DATA_PATH = os.path.join( 'data', DATA_PATH)
-        ROI_PATH = DATA_PATH + '/roi/' + AREA.lower() + '_' + CAM_ID + '.json'
+        ROI_PATH       = DATA_PATH + '/roi/' + AREA.lower() + '_' + CAM_ID + '.json'
+        EXCLUSION_PATH = DATA_PATH + '/roi/' + AREA.lower() + '_' + CAM_ID + '_exclusions.json'
         PMAT_PATH = utils.find_files_by_strings(os.path.join(DATA_PATH, 'pmat'), CAM_ID, "ACTIVE")[0]
         if (not os.path.exists(PMAT_DEST_PATH)) or (os.stat(PMAT_PATH).st_mtime - os.stat(PMAT_DEST_PATH).st_mtime > 1) :
             shutil.copy2 (PMAT_PATH, PMAT_DEST_PATH)
@@ -248,8 +269,12 @@ def run_udp(
     else:
         polys = []
 
-    # Start the web visualizer (no-op if already started or not installed)
-    _viz.start(port=8080)
+    EXCLUSION_ZONES = exclusions.load_exclusion_zones(EXCLUSION_PATH)
+
+    # Start the web visualizer (no-op if already started or not installed),
+    # handing over the PMAT matrix and ENU origin already loaded here so it
+    # doesn't load these files itself.
+    _viz.start(port=8080, M=view_transformer.M, origin=_load_origin(PMAT_PATH))
 
     frame_idx = 0
     frameId = 0
@@ -264,6 +289,10 @@ def run_udp(
     skiped_frames = 0
     
     
+    # In CSV mode, exp_dir is already the full output folder (OUTPUT_PATH/day/hours/cam_id).
+    # Pass it directly to save_results to skip its current-datetime subfolder construction.
+    _csv_save_folder = exp_dir if mode == 'csv' else None
+
     # Prepare storage for bounding-box results
     results = []
     all_results = []
@@ -282,8 +311,9 @@ def run_udp(
         
 
         ######### DATA RECEPTION #########
-        ###### CSV 
+        ###### CSV
         timers['udp_wait_reception'].tic()
+        det_full = EMPTY_DET_FULL
         if mode == 'csv':
             if csv_realtime and csv_next_read_ts is not None:
                 sleep_time = csv_next_read_ts - tm.time()
@@ -303,7 +333,14 @@ def run_udp(
                 frameId = int(_fid_str)
                 ts = float(rows[0][2])
                 ts_reception = datetime.now()
-                det = np.array([[float(r[5]), float(r[6]), float(r[7]), float(r[8]), float(r[9]), int(r[10])] for r in rows])
+                # Column 13 is the speed already computed for this input — kept
+                # as an extra column so it can be shown next to the
+                # freshly-computed one, without reprocessing `rows`.
+                det_full = np.array([
+                    [float(r[5]), float(r[6]), float(r[7]), float(r[8]), float(r[9]), int(r[10]), _safe_float(r[13])]
+                    for r in rows
+                ])
+                det = det_full[:, :6]
             timers['udp_wait_reception'].toc()
         else:
             # Lógica UDP original
@@ -349,7 +386,7 @@ def run_udp(
                 print(f"{CAM_ID} - Udp hex data couldn't be decoded, so it has zero information")
                 # We simulate iteration info with no aprox. expected info
                 frameId = frameId + 1
-                ts = ts + (1/(FPS if "FPS" in vars() else DEFAULT_FPS))
+                ts = ts + int(1e6 / (FPS if "FPS" in vars() else DEFAULT_FPS))
 
             det = EMPTY_DET
             # Checking case zero info in frameData
@@ -406,6 +443,9 @@ def run_udp(
         
         # Discard non-consolidated data
         online_targets = [t for t in online_targets if t.tlwh[2] * t.tlwh[3] > min_box_area]
+        if EXCLUSION_ZONES:
+            online_targets = [t for t in online_targets
+                              if not exclusions.in_exclusion_zone(t.tlwh, EXCLUSION_ZONES)]
         
         # Add track info to results 
         frame_results = []
@@ -436,7 +476,7 @@ def run_udp(
             print(f"\t -> Running on ONLY_RESULTS mode - only_results={only_results}")
             # We've checked every 300 frames if hour has changed.
             if (frame_idx % 300 == 0 and new_hour != current_hour):
-                utils.save_results(results, exp_dir, CAM_ID)
+                utils.save_results(results, exp_dir, CAM_ID, output_folder=_csv_save_folder)
                 current_hour = new_hour
                 results = []
                 print(f"{CAM_ID} - Saving every 300 frames")
@@ -473,9 +513,11 @@ def run_udp(
                     alertInfo.append(alertInfo_task)
                 if(get_speed):
                     online_speeds.append(online_speeds_task)
+                _kf = online_targets[i].kf_speed
+                _kf_str = f"{_kf:.2f}" if np.isfinite(_kf) else "nan"
                 all_results.append(
                         f"{frame_results[i]},{online_targets[i].location[0]},{online_targets[i].location[1]},"
-                        f"{online_targets[i].median_speed:.2f},{online_targets[i].event.polyType}"
+                        f"{_kf_str},{online_targets[i].event.polyType}"
                     )
                 timers['speed'].toc(value=t_speed_task)
                 timers['semantics'].toc(value=t_semantics_task) 
@@ -485,18 +527,35 @@ def run_udp(
                 sys.exit(1)
         timers['processing'].toc()
 
+
+
+
+        ######################### VISUALIZER ##########################
         # Push processed frame to the web visualizer (measured)
         timers['visualizer'].tic()
         _viz_objects = []
         for t in online_targets:
             if t.location is not None and len(t.location) >= 2:
+                # Match this track's detection bbox against det_full's bbox
+                # columns to pick up the speed already computed for this input
+                # (column 6 of det_full), shown next to the freshly-computed one.
+                ref_speed = None
+                if det_full.size:
+                    match = (det_full[:, :4] == t.det_tlwh).all(axis=1)
+                    if match.any():
+                        ref_speed = float(det_full[match, 6][0])  # may be NaN
                 _viz_objects.append({
-                    "track_id":  t.track_id,
-                    "class_id":  t.cl,
-                    "enu_x":     float(t.location[0]),
-                    "enu_y":     float(t.location[1]),
-                    "speed":     float(t.median_speed) if t.median_speed == t.median_speed else 0.0,
-                    "poly_type": t.event.polyType if (t.event and t.event.polyType) else "",
+                    "track_id":     t.track_id,
+                    "class_id":     t.cl,
+                    "enu_x":        float(t.location[0]),
+                    "enu_y":        float(t.location[1]),
+                    "speed":        float(t.speed) if t.speed == t.speed else None,
+                    "poly_type":    t.event.polyType if (t.event and t.event.polyType) else "",
+                    "motion_state":     getattr(t, 'motion_state', 0),
+                    "ref_speed":        ref_speed,
+                    "raw_speed":        getattr(t, 'raw_speed', None),
+                    "checkpoint_speed": getattr(t, 'checkpoint_speed', None),
+                    "kf_speed":         getattr(t, 'kf_speed', None),
                 })
         if _viz_objects:
             _viz.push_frame(frameId, ts, _viz_objects)
@@ -564,7 +623,7 @@ def run_udp(
             timers['saving_results'].tic()
             
             
-            folder_path = utils.save_results(all_results, exp_dir, CAM_ID)
+            folder_path = utils.save_results(all_results, exp_dir, CAM_ID, output_folder=_csv_save_folder)
             all_results , results = [] , []
             print(f"{CAM_ID} - Saving every 300 frames")
             
@@ -615,7 +674,7 @@ def run_udp(
     print(f"{CAM_ID} - \n\n\t SmartCity skipped a total of {frameId - frame_idx} frames.")
 
     if save_results and all_results != []:
-        utils.save_results(all_results, exp_dir, CAM_ID)
+        utils.save_results(all_results, exp_dir, CAM_ID, output_folder=_csv_save_folder)
         
     if alerts:
         alarm_file = join(exp_dir, ALERTS_OUT_NAME)

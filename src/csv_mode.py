@@ -136,16 +136,23 @@ def load_csv_mode_config(default_fps):
         "ROI_PATH": _resolve_area_asset_path(
             local_area_root, "roi", "ROI_PATH", "ROI", f"{area.lower()}_{cam_id}.json"
         ),
+        "EXCLUSION_PATH": os.path.join(
+            local_area_root, "roi", f"{area.lower()}_{cam_id}_exclusions.json"
+        ),
         "PMAT_PATH": _resolve_area_asset_path(
             local_area_root, "pmat", "PMAT_PATH", "PMAT", f"{cam_id}_ACTIVE.txt"
         ),
         "SOURCE_ROI_PATH": _resolve_area_asset_path(
             source_area_root, "roi", "ROI_PATH", "ROI", f"{area.lower()}_{cam_id}.json"
         ),
+        "SOURCE_EXCLUSION_PATH": os.path.join(
+            source_area_root, "roi", f"{area.lower()}_{cam_id}_exclusions.json"
+        ),
         "SOURCE_PMAT_PATH": _resolve_area_asset_path(
             source_area_root, "pmat", "PMAT_PATH", "PMAT", f"{cam_id}_ACTIVE.txt"
         ),
         "FPS": int(os.environ.get("FPS", default_fps)),
+        "OUTPUT_PATH": expand_env_path(os.environ.get("OUTPUT_PATH", "")),
     }
     print(f"[csv_mode] Source data path: {config['SOURCE_DATA_PATH']}")
     print(f"[csv_mode] Local data path: {config['DATA_PATH']}")
@@ -201,6 +208,15 @@ def _cache_complete(csv_config, selected_hours, local_day_path) -> bool:
 
 def sync_csv_inputs(csv_config, selected_hours):
     local_day_path = resolve_csv_scan_path(csv_config["DATA_PATH"], require_exists=False)
+
+    # Exclusion file is a config updated independently of track data — always
+    # overwrite so edits in B2DROP take effect without clearing the cache.
+    src_excl = csv_config["SOURCE_EXCLUSION_PATH"]
+    dst_excl = csv_config["EXCLUSION_PATH"]
+    if os.path.isfile(src_excl):
+        os.makedirs(os.path.dirname(dst_excl), exist_ok=True)
+        shutil.copy2(src_excl, dst_excl)
+        print(f"[csv_mode] Synced exclusion file: {dst_excl}")
 
     if _cache_complete(csv_config, selected_hours, local_day_path):
         print("[csv_mode] All data already in cache — skipping sync")

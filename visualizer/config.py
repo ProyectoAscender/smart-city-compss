@@ -62,12 +62,6 @@ def load_config() -> dict:
 
     port = int(env.get("VIZ_PORT", "8080"))
 
-    # Both data_cache and runs/exp are watched for tracklets.txt
-    watch_paths = [
-        str(project_root / "data_cache"),
-        str(project_root / "runs"),
-    ]
-
     return {
         "cam_id": cam_id,
         "city": city,
@@ -78,8 +72,5 @@ def load_config() -> dict:
         "ref_lat": ref_lat,
         "ref_lon": ref_lon,
         "port": port,
-        "watch_paths": watch_paths,
         "project_root": str(project_root),
-        "csv_day":   env.get("CSV_DAY", "").strip(),
-        "csv_hours": env.get("CSV_HOURS", "").strip(),
     }

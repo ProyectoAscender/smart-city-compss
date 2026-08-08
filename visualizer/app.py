@@ -12,23 +12,18 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
+from . import _M, _origin
 from .config import load_config
 from .geo import load_polygons
-from .reader import find_tracklet_files, build_frames
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(name)s  %(message)s")
 log = logging.getLogger(__name__)
 
 cfg      = load_config()
 polygons: list          = []
-_frames:  list[dict]    = []
 _connections: set[WebSocket] = set()
 frame_buffer: deque     = deque(maxlen=500)
 map_center: dict        = {"lat": cfg["ref_lat"], "lon": cfg["ref_lon"]}
-
-# Created inside lifespan so it belongs to uvicorn's event loop (avoids
-# "Future attached to a different loop" on Python 3.8)
-_frames_ready: asyncio.Event | None = None
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -39,21 +34,6 @@ def _compute_center(polys: list) -> dict:
     if not lats:
         return {"lat": cfg["ref_lat"], "lon": cfg["ref_lon"]}
     return {"lat": sum(lats) / len(lats), "lon": sum(lons) / len(lons)}
-
-
-async def _send_frames(ws: WebSocket) -> None:
-    """Stream all pre-loaded frames to one client in batches of 100."""
-    BATCH = 100
-    total = len(_frames)
-    print(f"[viz] _send_frames: sending {total} frames in {(total-1)//BATCH+1} batches")
-    for i in range(0, total, BATCH):
-        try:
-            await ws.send_text(json.dumps({"type": "batch", "frames": _frames[i:i + BATCH]}))
-        except Exception as exc:
-            print(f"[viz] _send_frames: error at batch {i//BATCH}: {exc}")
-            return
-        await asyncio.sleep(0)
-    print(f"[viz] _send_frames: done")
 
 
 # ── live broadcast ────────────────────────────────────────────────────────────
@@ -71,53 +51,14 @@ async def broadcast(msg: dict) -> None:
     _connections.difference_update(dead)
 
 
-# ── startup frame loader ──────────────────────────────────────────────────────
-
-async def _load_frames() -> None:
-    global _frames
-    print("[viz] _load_frames: start")
-    try:
-        files = find_tracklet_files(
-            cfg["watch_paths"],
-            cfg.get("csv_day", ""),
-            cfg.get("csv_hours", ""),
-        )
-        print(f"[viz] _load_frames: found {len(files)} file(s): {[str(f) for f in files]}")
-        if not files:
-            log.warning("No tracklet files found")
-            return
-
-        loop = asyncio.get_running_loop()
-        print("[viz] _load_frames: calling build_frames in executor…")
-        _frames = await loop.run_in_executor(
-            None, build_frames, files, cfg["pmat_path"], cfg["ref_lat"], cfg["ref_lon"]
-        )
-        print(f"[viz] _load_frames: {len(_frames)} frames ready. "
-              f"First={_frames[0]['frame_id'] if _frames else 'N/A'}, "
-              f"Last={_frames[-1]['frame_id'] if _frames else 'N/A'}")
-        if _frames:
-            obj = _frames[0]['objects'][0] if _frames[0]['objects'] else None
-            print(f"[viz] _load_frames: sample obj={obj}")
-    except Exception as exc:
-        print(f"[viz] _load_frames: EXCEPTION: {exc}")
-        import traceback; traceback.print_exc()
-    finally:
-        print("[viz] _load_frames: setting _frames_ready event")
-        if _frames_ready is not None:
-            _frames_ready.set()
-
-
 # ── lifespan ──────────────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global polygons, _frames_ready
-    # Create Event here — guarantees it belongs to uvicorn's event loop
-    _frames_ready = asyncio.Event()
-    print(f"[viz] lifespan: Event created, loop={asyncio.get_running_loop()}")
+    global polygons
 
     try:
-        polygons = load_polygons(cfg["roi_path"], cfg["pmat_path"],
+        polygons = load_polygons(cfg["roi_path"], _M, _origin,
                                  cfg["ref_lat"], cfg["ref_lon"])
         map_center.update(_compute_center(polygons))
         print(f"[viz] lifespan: {len(polygons)} polygons loaded, "
@@ -125,9 +66,7 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         print(f"[viz] lifespan: polygon load FAILED: {exc}")
 
-    task = asyncio.create_task(_load_frames())
     yield
-    task.cancel()
 
 
 # ── FastAPI app ───────────────────────────────────────────────────────────────
@@ -159,12 +98,8 @@ async def api_config():
 @app.get("/api/status")
 async def api_status():
     return {
-        "frames_loaded": len(_frames),
-        "frames_ready":  _frames_ready.is_set() if _frames_ready else False,
-        "connections":   len(_connections),
-        "pmat_path":     cfg["pmat_path"],
-        "csv_day":       cfg.get("csv_day", ""),
-        "csv_hours":     cfg.get("csv_hours", ""),
+        "connections": len(_connections),
+        "pmat_path":   cfg["pmat_path"],
     }
 
 
@@ -184,18 +119,7 @@ async def ws_endpoint(ws: WebSocket):
         }))
         print("[viz] WS init sent")
 
-        # Wait for frames; send a ping every 10 s so the browser doesn't close
-        # the connection while build_frames is running
-        while _frames_ready is not None and not _frames_ready.is_set():
-            print("[viz] WS waiting for frames (ping keepalive)…")
-            try:
-                await asyncio.wait_for(_frames_ready.wait(), timeout=10.0)
-            except asyncio.TimeoutError:
-                await ws.send_text('{"type":"ping"}')
-
-        print(f"[viz] WS frames ready — sending {len(_frames)} frames")
-        await _send_frames(ws)
-
+        # Replay recently-broadcast live frames so a late-joining client catches up
         for frame in list(frame_buffer):
             await ws.send_text(json.dumps(frame))
 
