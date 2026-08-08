@@ -332,7 +332,7 @@ def run_udp(
                 rows = list(rows)
                 frameId = int(_fid_str)
                 ts = float(rows[0][2])
-                ts_reception = datetime.now()
+                ts_reception = rows[0][3] if len(rows[0]) > 3 else datetime.now()
                 # Column 13 is the speed already computed for this input — kept
                 # as an extra column so it can be shown next to the
                 # freshly-computed one, without reprocessing `rows`.
